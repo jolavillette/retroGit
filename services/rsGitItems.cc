@@ -1,5 +1,5 @@
 /*******************************************************************************
- * services/rsRetroGitItems.cc                                                *
+ * services/rsGitItems.cc                                                      *
  *                                                                             *
  * Copyright (C) 2026 RetroShare Team <retroshare.project@gmail.com>           *
  *                                                                             *

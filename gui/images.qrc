@@ -2,5 +2,6 @@
     <qresource prefix="/">
         <file>images/git.png</file>
 		<file>images/git-notify.png</file>
+		<file>images/add.png</file>
     </qresource>
 </RCC>

@@ -20,9 +20,10 @@
 
 #include "MainWidget.h"
 #include "ui_MainWidget.h"
+#include "GitGroupDialog.h"
 
 #include "services/p3Git.h"
-#include "interface/rsRetroGit.h"
+#include "interface/rsGit.h"
 #include "services/rsGitItems.h"
 #include "retroshare/rsservicecontrol.h"
 
@@ -31,18 +32,78 @@
 #include <QTime>
 #include <QMenu>
 
+#include <util/rsthreads.h>
+#include "util/qtthreadsutils.h"
+
 MainWidget::MainWidget(QWidget *parent, RetroGitNotify *notify) :
 	MainPage(parent),
 	//mNotify(notify),
 	ui(new Ui::MainWidget)
 {
+	(void)notify;
 	ui->setupUi(this);
+	
+    /* Set initial size the splitter */
+    ui->splitter->setStretchFactor(0, 0);
+    ui->splitter->setStretchFactor(1, 1);
+	
+	connect( ui->toolButton_createGit, SIGNAL(clicked()), this, SLOT(createGroup()));
 
+	loadGroupMeta();
 }
 
 MainWidget::~MainWidget()
 {
 	delete ui;
+}
+
+void MainWidget::createGroup()
+{
+	GitGroupDialog gitCreate(this);
+	gitCreate.exec();
+}
+
+void MainWidget::loadGroupMeta()
+{
+	RsThread::async([this]()
+	{
+		// Fetch group metadata from backend
+		std::list<RsGxsGroupId> groupIds; // empty list = get all groups
+		std::vector<RsGitGroup> groups;
+		
+		if (!rsRetroGit->getGroups(groupIds, groups))
+		{
+			std::cerr << "MainWidget::loadGroupMeta() Error getting groups" << std::endl;
+			return;
+		}
+
+		// Convert to RsGroupMetaData for display
+		std::list<RsGroupMetaData> groupMeta;
+		for (auto& group : groups)
+		{
+			groupMeta.push_back(group.mMeta);
+		}
+
+		// Update UI in main thread
+		RsQThreadUtils::postToObject([this, groupMeta]()
+		{
+			if (groupMeta.size() > 0)
+			{
+				insertGroupsData(groupMeta);
+			}
+		}, this);
+	});
+}
+
+void MainWidget::insertGroupsData(const std::list<RsGroupMetaData> &gitList)
+{
+    ui->treeWidget->clear();
+    
+    for (const auto& meta : gitList) {
+        QTreeWidgetItem *item = new QTreeWidgetItem(ui->treeWidget);
+        item->setText(0, QString::fromUtf8(meta.mGroupName.c_str()));
+        item->setData(0, Qt::UserRole, QString::fromStdString(meta.mGroupId.toStdString()));
+    }
 }
 
 

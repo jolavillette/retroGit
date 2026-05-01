@@ -80,6 +80,14 @@
        </widget>
       </item>
       <item>
+       <widget class="QToolButton" name="toolButton_createGit">
+        <property name="icon">
+         <iconset resource="images.qrc">
+          <normaloff>:/images/add.png</normaloff>:/images/add.png</iconset>
+        </property>
+       </widget>
+      </item>
+      <item>
        <spacer>
         <property name="orientation">
          <enum>Qt::Horizontal</enum>
@@ -121,6 +129,43 @@
       <attribute name="title">
        <string>Repositories</string>
       </attribute>
+      <layout class="QGridLayout" name="gridLayout">
+       <item row="0" column="0">
+        <widget class="QSplitter" name="splitter">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <widget class="QWidget" name="">
+          <layout class="QVBoxLayout" name="verticalLayout">
+           <item>
+            <widget class="QComboBox" name="comboBox"/>
+           </item>
+           <item>
+            <widget class="QTreeWidget" name="treeWidget">
+             <column>
+              <property name="text">
+               <string notr="true">Repositories</string>
+              </property>
+             </column>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QTabWidget" name="tabWidget">
+          <widget class="QWidget" name="tabWidgetPage1">
+           <attribute name="title">
+            <string/>
+           </attribute>
+          </widget>
+          <widget class="QWidget" name="tabWidgetPage2">
+           <attribute name="title">
+            <string/>
+           </attribute>
+          </widget>
+         </widget>
+        </widget>
+       </item>
+      </layout>
      </widget>
     </widget>
    </item>
@@ -128,7 +173,6 @@
  </widget>
  <resources>
   <include location="images.qrc"/>
-  <include location="RetroChess_images.qrc"/>
  </resources>
  <connections/>
 </ui>

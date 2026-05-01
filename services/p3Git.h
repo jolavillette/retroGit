@@ -31,12 +31,13 @@
 #include "gxs/rsgenexchange.h"
 
 #include <retroshare/rsgxstunnel.h>
+#include <retroshare/rsgxsifacehelper.h>
 
-#include <interface/rsRetroGit.h>
+#include <interface/rsGit.h>
 
 class RetroGitNotify ;
 
-class p3Git: public RsGenExchange, public RsGit, public p3Config
+class p3Git: public RsGenExchange, public RsGit, public p3Config, public RsGxsIfaceHelper
 {
 public:
 	p3Git(RsGeneralDataService* gds, RsNetworkExchangeService* nes, RsGixs *gixs, RetroGitNotify *notifier);
@@ -59,6 +60,14 @@ public:
     
     // Blocking Interfaces.
     virtual bool createGroup(RsGitGroup &group) override;
+    
+    virtual bool getGroups(const std::list<RsGxsGroupId>& groupIds, std::vector<RsGitGroup>& groups) override;
+    
+    virtual bool subscribeToGroup(uint32_t& token, const RsGxsGroupId& groupId, bool subscribe) override;
+    virtual bool subscribe(const RsGxsGroupId& groupId, bool subscribe) override;
+    
+    virtual bool setMessageReadStatus(const RsGxsGrpMsgIdPair &msgId, bool read) override;
+    virtual void setMessageReadStatus(uint32_t &token, const RsGxsGrpMsgIdPair &msgId, bool read) override;
 
 private:
 	RsMutex mRetroGitMtx;

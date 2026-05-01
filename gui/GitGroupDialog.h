@@ -1,7 +1,7 @@
 /*******************************************************************************
- * interface/rsRetroGit.h                                                    *
+ * gui/TheGIT/GitGroupDialog.h                                               *
  *                                                                             *
- * Copyright (C) 2020 RetroShare Team <retroshare.project@gmail.com>           *
+ * Copyright (C) 2020 by Robert Fernie       <retroshare.project@gmail.com>    *
  *                                                                             *
  * This program is free software: you can redistribute it and/or modify        *
  * it under the terms of the GNU Affero General Public License as              *
@@ -18,49 +18,32 @@
  *                                                                             *
  *******************************************************************************/
 
-#include <stdint.h>
-#include <string>
-#include <vector>
-#include <retroshare/rstypes.h>
-#include <retroshare/rsgxscommon.h> // For RsGxsMeta
+#ifndef _GIT_GROUP_DIALOG_H
+#define _GIT_GROUP_DIALOG_H
 
-#include <QVariantMap>
-#include <QString>
+#include "gui/gxs/GxsGroupDialog.h"
 
-class RsGit ;
-extern RsGit *rsRetroGit;
- 
-static const uint32_t CONFIG_TYPE_RetroGit_PLUGIN = 0xe001 ;
+#include "interface/rsGit.h"
 
-/**
- * @brief Data structure representing a RetroGit Group (Repository)
- */
-struct RsGitGroup
+class GitGroupDialog : public GxsGroupDialog
 {
-    std::string mGroupName;
-    std::string mGroupDescription;
-    
-    // GXS Metadata (handles IDs, timestamps, signatures)
-    RsGroupMetaData mMeta; 
-};
+	Q_OBJECT
 
-class RsGit
-{
 public:
-    virtual ~RsGit() {}
+	GitGroupDialog(QWidget *parent);
+	GitGroupDialog(Mode mode, RsGxsGroupId groupId, QWidget *parent);
 
-    /**
-     * @brief Create a new RetroGit group/repository.
-     * @param[out] token A token to track the progress of the creation.
-     * @param[in] group The group data to be published.
-     * @return true if the request was successfully queued.
-     */
-    virtual bool createGroup(uint32_t &token, RsGitGroup &group) = 0;
-    
-    // Blocking Interfaces.
-    virtual bool createGroup(RsGitGroup &group) = 0;
+protected:
+	virtual void initUi() override;
+	virtual QPixmap serviceImage() override;
+	virtual bool service_createGroup(RsGroupMetaData &meta) override;
+	virtual bool service_updateGroup(const RsGroupMetaData &editedMeta) override;
+	virtual bool service_loadGroup(const RsGxsGenericGroupData *data, Mode mode, QString &description) override;
+	virtual bool service_getGroupData(const RsGxsGroupId &grpId, RsGxsGenericGroupData *&data) override;
+
+private:
+	void prepareGitGroup(RsGitGroup &group, const RsGroupMetaData &meta);
+
 };
 
-extern RsGit *rsRetroGit;
-
-
+#endif

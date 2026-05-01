@@ -18,12 +18,15 @@
  *                                                                             *
  ********************************************************************************/
 
+#ifndef SERVICES_RS_GIT_ITEMS_H
+#define SERVICES_RS_GIT_ITEMS_H
+
 #include <map>
 
 #include "rsitems/rsserviceids.h"
 #include "serialiser/rsserial.h"
 #include "rsitems/rsitem.h"
-#include "interface/rsRetroGit.h" 
+#include "interface/rsGit.h" 
 #include <retroshare/rsgxscommon.h>
 #include <retroshare/rsgxsifacetypes.h>
 #include <rsitems/rsgxsitems.h>
@@ -146,3 +149,5 @@ public:
     virtual RsItem *create_item(uint16_t service, uint8_t item_subtype) const override;
 };
 /**************************************************************************/
+
+#endif // SERVICES_RS_GIT_ITEMS_H

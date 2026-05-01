@@ -27,6 +27,9 @@
 #include <retroshare/rspeers.h>
 #include "gui/RetroGitNotify.h"
 
+#include <list>
+#include <retroshare/rsgxsifacetypes.h>
+
 #include <QWidget>
 
 class QAction;
@@ -45,6 +48,11 @@ public:
 	~MainWidget();
 
 private slots:
+	void createGroup();
+
+private:
+	void loadGroupMeta();
+	void insertGroupsData(const std::list<RsGroupMetaData> &gitList);
 
 private:
 	Ui::MainWidget *ui;

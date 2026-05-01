@@ -42,13 +42,15 @@ SOURCES = RetroGitPlugin.cpp               \
           services/rsGitItems.cc \
           gui/MainWidget.cpp \
           gui/RetroGitNotify.cpp \
+          gui/GitGroupDialog.cpp \
 
 HEADERS = RetroGitPlugin.h                 \
           services/p3Git.h            \
           services/rsGitItems.h       \
-          interface/rsRetroGit.h \
+          interface/rsGit.h \
           gui/MainWidget.h \
           gui/RetroGitNotify.h \
+          gui/GitGroupDialog.h \
 
 FORMS += \
           gui/MainWidget.ui \

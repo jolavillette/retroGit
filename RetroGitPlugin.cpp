@@ -35,7 +35,7 @@
 #include <util/rsdir.h>
 #include "services/p3Git.h"
 #include "services/rsGitItems.h"
-#include "interface/rsRetroGit.h"
+#include <interface/rsGit.h>
 
 #include <retroshare/rsinit.h>
 #include <retroshare/rsgxstunnel.h>

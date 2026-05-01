@@ -1,7 +1,7 @@
 /*******************************************************************************
  * services/p3Git.cc                                                           *
  *                                                                             *
- * Copyright (C) 2020 RetroShare Team <retroshare.project@gmail.com>           *
+ * Copyright (C) 2026 RetroShare Team <retroshare.project@gmail.com>           *
  *                                                                             *
  * This program is free software: you can redistribute it and/or modify        *
  * it under the terms of the GNU Affero General Public License as              *
@@ -20,6 +20,7 @@
 
 #include <iostream>
 #include <string>
+#include <chrono>
 
 #include "p3Git.h"
 #include "rsGitItems.h"
@@ -46,7 +47,7 @@ static uint32_t retroGitAuthenPolicy()
 
 p3Git::p3Git(RsGeneralDataService* gds, RsNetworkExchangeService* nes, RsGixs *gixs, RetroGitNotify *notifier)
 	: RsGenExchange(gds, nes, new RsGxsRetroGitSerialiser(), RS_SERVICE_TYPE_RetroGit_PLUGIN, gixs, retroGitAuthenPolicy()),
-      mRetroGitMtx("p3Git"), mNotify(notifier)
+      mRetroGitMtx("p3Git"), mNotify(notifier), RsGxsIfaceHelper(static_cast<RsGxsIface&>(*this))
 {
 	rsRetroGit = this;
 }
@@ -132,7 +133,46 @@ void p3Git::notifyChanges(std::vector<RsGxsNotify *> &)
 bool p3Git::createGroup(RsGitGroup &group)
 {
 	uint32_t token;
-	//return createGroup(token, group) && waitToken(token) == RsTokenService::COMPLETE;
+	return createGroup(token, group) && waitToken(token) == RsTokenService::COMPLETE;
+}
+
+bool p3Git::getGroups(const std::list<RsGxsGroupId>& groupIds, std::vector<RsGitGroup>& groups)
+{
+	uint32_t token;
+	RsTokReqOptions opts;
+	opts.mReqType = GXS_REQUEST_TYPE_GROUP_DATA;
+
+	if (groupIds.empty())
+	{
+        if (!requestGroupInfo(token, opts) || waitToken(token,std::chrono::milliseconds(5000)) != RsTokenService::COMPLETE )
+		{
+			return false;
+		}
+	}
+	else
+	{
+		if (!requestGroupInfo(token, opts, groupIds) || waitToken(token) != RsTokenService::COMPLETE )
+		{
+			return false;
+		}
+	}
+	
+	std::vector<RsGxsGrpItem*> grpItems;
+	if (!RsGenExchange::getGroupData(token, grpItems)) {
+		return false;
+	}
+
+	for (std::vector<RsGxsGrpItem*>::iterator it = grpItems.begin(); it != grpItems.end(); ++it) {
+		RsGitGroupItem* gitItem = dynamic_cast<RsGitGroupItem*>(*it);
+		if (gitItem) {
+			RsGitGroup g = gitItem->mGroup;
+			g.mMeta = gitItem->meta;
+			groups.push_back(g);
+		}
+		delete *it;
+	}
+
+	return !groups.empty();
 }
 
 // Function which will update the edited information in the git group
@@ -162,4 +202,61 @@ RsItem *RsGxsRetroGitSerialiser::create_item(uint16_t service, uint8_t item_subt
         return new RsGitConfigItem();
 
     return NULL;
+}
+
+bool p3Git::subscribeToGroup(uint32_t& token, const RsGxsGroupId& groupId, bool subscribe_flag)
+{
+    bool response = RsGenExchange::subscribeToGroup(token, groupId, subscribe_flag);
+
+    if (response && rsEvents)
+    {
+        auto ev = std::make_shared<RsGitEvent>();
+        ev->mGitGroupId = groupId;
+        ev->mGitEventCode = RsGitEventCode::SUBSCRIBE_STATUS_CHANGED;
+        rsEvents->postEvent(ev);
+    }
+
+    return response;
+}
+
+bool p3Git::subscribe(const RsGxsGroupId& groupId, bool subscribe_flag)
+{
+    uint32_t token;
+    return subscribeToGroup(token, groupId, subscribe_flag);
+}
+
+bool p3Git::setMessageReadStatus(const RsGxsGrpMsgIdPair &msgId, bool read)
+{
+    uint32_t token;
+    setMessageReadStatus(token, msgId, read);
+	
+	if(waitToken(token) != RsTokenService::COMPLETE )
+    {
+        std::cerr << "p3Git::setMessageReadStatus() waitToken failed" << std::endl;
+        return false;
+    }
+
+    RsGxsGrpMsgIdPair p;
+    acknowledgeMsg(token, p);
+    return true;
+}
+
+void p3Git::setMessageReadStatus(uint32_t &token, const RsGxsGrpMsgIdPair &msgId, bool read)
+{
+    /* Always remove status unprocessed */
+    uint32_t mask = GXS_SERV::GXS_MSG_STATUS_GUI_NEW | GXS_SERV::GXS_MSG_STATUS_GUI_UNREAD;
+    uint32_t status = GXS_SERV::GXS_MSG_STATUS_GUI_UNREAD;
+    if (read) status = 0;
+
+    setMsgStatusFlags(token, msgId, status, mask);
+
+    if (rsEvents)
+    {
+        auto ev = std::make_shared<RsGitEvent>();
+
+        ev->mGitMsgId = msgId.second;
+        ev->mGitGroupId = msgId.first;
+        ev->mGitEventCode = RsGitEventCode::READ_STATUS_CHANGED;
+        rsEvents->postEvent(ev);
+    }
 }
