@@ -36,6 +36,7 @@
 #include "services/p3Git.h"
 #include "services/rsGitItems.h"
 #include <interface/rsGit.h>
+#include "pqi/p3cfgmgr.h"
 
 #include <retroshare/rsinit.h>
 #include <retroshare/rsgxstunnel.h>
@@ -170,6 +171,13 @@ p3Service *RetroGitPlugin::p3_service() const
         mRetroGit->setNetworkExchangeService(mRetroGitNetService);
     }
     return mRetroGitNetService;
+}
+
+p3Config *RetroGitPlugin::p3_config() const
+{
+    // ensure mRetroGit is created
+    p3_service();
+    return mRetroGit;
 }
 
 void RetroGitPlugin::setPlugInHandler(RsPluginHandler *pgHandler)

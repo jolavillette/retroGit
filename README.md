@@ -2,6 +2,13 @@
 
 This is a Git plugin
 
+# Dependencies 
+
+for windows install msys2 package
+
+pacman -S mingw-w64-x86_64-libgit2
+
+
 # build & install:
 
 put/clone `RetroGit` to `RetroShare/plugins/` recommend

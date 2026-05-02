@@ -37,7 +37,9 @@ public:
 
 	virtual void setInterfaces(RsPlugInInterfaces& interfaces);
 	virtual void getPluginVersion(int& major, int& minor, int& build, int& svn_rev) const;
-	virtual p3Service *p3_service() const;
+	virtual p3Service  *p3_service() const;
+	virtual p3Config   *p3_config()  const;
+	virtual std::string configurationFileName() const { return "retrogit.cfg"; }
 	virtual uint16_t rs_service_id() const;
 
 	virtual void setPlugInHandler(RsPluginHandler *pgHandler);

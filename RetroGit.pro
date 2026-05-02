@@ -14,6 +14,7 @@ CONFIG += qt uic qrc resources
 MOBILITY = multimedia
 DESTDIR = lib
 TARGET = RetroGit
+CONFIG += c++17
 
 DEPENDPATH  += ../../retroshare-gui/src/temp/ui ../../libretroshare/src
 INCLUDEPATH += ../../retroshare-gui/src/temp/ui ../../libretroshare/src
@@ -30,7 +31,15 @@ linux-* {
 #################################### Windows #####################################
 
 win32 {
-	LIBS_DIR = $$PWD/../../../libs
+	# Use MSYS2 MinGW64 paths for libgit2
+	isEmpty(PREFIX_MSYS2) {
+		PREFIX_MSYS2 = C:/msys64/mingw64
+	}
+	
+	message(Linking libgit2 from $${PREFIX_MSYS2})
+	
+	INCLUDEPATH += $${PREFIX_MSYS2}/include
+	LIBS        += -L$${PREFIX_MSYS2}/lib -lgit2 -lws2_32 -lwldap32
 }
 
 	QMAKE_CXXFLAGS *= -Wall
