@@ -220,6 +220,18 @@ std::string RetroGitPlugin::getPluginName() const
 
 QTranslator* RetroGitPlugin::qt_translator(QApplication */*app*/, const QString& languageCode, const QString& externalDir) const
 {
+	if (languageCode == "en") {
+		return NULL;
+	}
+
+	QTranslator* translator = new QTranslator();
+	if (translator->load(externalDir + "/RetroGit_" + languageCode + ".qm")) {
+		return translator;
+	} else if (translator->load(":/lang/RetroGit_" + languageCode + ".qm")) {
+		return translator;
+	}
+
+	delete(translator);
 	return NULL;
 }
 
