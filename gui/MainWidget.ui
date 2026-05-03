@@ -80,14 +80,6 @@
        </widget>
       </item>
       <item>
-       <widget class="QToolButton" name="toolButton_createGit">
-        <property name="icon">
-         <iconset resource="images.qrc">
-          <normaloff>:/images/add.png</normaloff>:/images/add.png</iconset>
-        </property>
-       </widget>
-      </item>
-      <item>
        <spacer>
         <property name="orientation">
          <enum>Qt::Horizontal</enum>

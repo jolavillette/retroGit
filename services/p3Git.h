@@ -18,59 +18,61 @@
  *                                                                             *
  *******************************************************************************/
 
+#include <QVariantMap>
 #include <list>
 #include <string>
-#include <QVariantMap>
 
-#include "services/rsGitItems.h"
-#include "services/p3service.h"
-#include "serialiser/rstlvbase.h"
-#include "rsitems/rsconfigitems.h"
+#include "gxs/rsgenexchange.h"
 #include "plugins/rspqiservice.h"
 #include "retroshare/rsidentity.h"
-#include "gxs/rsgenexchange.h"
+#include "rsitems/rsconfigitems.h"
+#include "serialiser/rstlvbase.h"
+#include "services/p3service.h"
+#include "services/rsGitItems.h"
 
-#include <retroshare/rsgxstunnel.h>
 #include <retroshare/rsgxsifacehelper.h>
+#include <retroshare/rsgxstunnel.h>
 
 #include <interface/rsGit.h>
 
-class RetroGitNotify ;
+class RetroGitNotify;
 
 class p3Git: public RsGenExchange, public RsGit, public p3Config, public RsGxsIfaceHelper
 {
 public:
-	p3Git(RsGeneralDataService* gds, RsNetworkExchangeService* nes, RsGixs *gixs, RetroGitNotify *notifier);
-	virtual ~p3Git() override;
+    p3Git(RsGeneralDataService *gds, RsNetworkExchangeService *nes, RsGixs *gixs,RetroGitNotify *notifier);
+    virtual ~p3Git() override;
 
-	virtual RsServiceInfo getServiceInfo() override;
+    virtual RsServiceInfo getServiceInfo() override;
 
-    virtual RsTokenService* getTokenService() override;
+    virtual RsTokenService *getTokenService() override;
 
     // GXS methods
-    virtual RsSerialiser* setupSerialiser() override;
-    virtual bool saveList(bool &cleanup, std::list<RsItem *>&saveList) override;
-    virtual bool loadList(std::list<RsItem *>& loadList) override;
+    virtual RsSerialiser *setupSerialiser() override;
+    virtual bool saveList(bool &cleanup, std::list<RsItem *> &saveList) override;
+    virtual bool loadList(std::list<RsItem *> &loadList) override;
 
     virtual void service_tick() override;
     virtual void notifyChanges(std::vector<RsGxsNotify *> &changes) override;
 
     // RsGit interface
     virtual bool createGroup(uint32_t &token, RsGitGroup &group) override;
-    
+    virtual bool updateGroup(uint32_t &token, RsGitGroup &group) override;
+
     // Blocking Interfaces.
     virtual bool createGroup(RsGitGroup &group) override;
-    
-    virtual bool getGroups(const std::list<RsGxsGroupId>& groupIds, std::vector<RsGitGroup>& groups) override;
-    
-    virtual bool subscribeToGroup(uint32_t& token, const RsGxsGroupId& groupId, bool subscribe) override;
-    virtual bool subscribe(const RsGxsGroupId& groupId, bool subscribe) override;
-    
-    virtual bool setMessageReadStatus(const RsGxsGrpMsgIdPair &msgId, bool read) override;
-    virtual void setMessageReadStatus(uint32_t &token, const RsGxsGrpMsgIdPair &msgId, bool read) override;
+    virtual bool updateGroup(RsGitGroup &group) override;
+
+    virtual bool getGroups(const std::list<RsGxsGroupId> &groupIds, std::vector<RsGitGroup> &groups) override;
+
+    virtual bool subscribeToGroup(uint32_t &token, const RsGxsGroupId &groupId, bool subscribe) override;
+    virtual bool subscribe(const RsGxsGroupId &groupId, bool subscribe) override;
+
+    virtual bool setMessageReadStatus(const RsGxsGrpMsgIdPair &msgId,bool read) override;
+    virtual void setMessageReadStatus(uint32_t &token,const RsGxsGrpMsgIdPair &msgId,bool read) override;
 
 private:
-	RsMutex mRetroGitMtx;
-	RetroGitNotify *mNotify ;
+    RsMutex mRetroGitMtx;
+    RetroGitNotify *mNotify;
     std::map<uint32_t, uint32_t> mKnownGit;
 };

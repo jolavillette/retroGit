@@ -23,16 +23,18 @@
 
 #include <retroshare-gui/mainpage.h>
 
+#include "gui/RetroGitNotify.h"
 #include <retroshare/rsfiles.h>
 #include <retroshare/rspeers.h>
-#include "gui/RetroGitNotify.h"
 
-#include <list>
-#include <retroshare/rsgxsifacetypes.h>
-#include <retroshare/rsevents.h>
 #include "gui/common/GroupTreeWidget.h"
+#include <list>
+#include <retroshare/rsevents.h>
+#include <retroshare/rsgxsifacetypes.h>
 
+#include <QPoint>
 #include <QWidget>
+
 
 class QAction;
 
@@ -43,36 +45,38 @@ class MainWidget;
 
 class MainWidget : public MainPage
 {
-	Q_OBJECT
+    Q_OBJECT
 
 public:
-	explicit MainWidget(QWidget *parent, RetroGitNotify *notify);
-	~MainWidget();
+    explicit MainWidget(QWidget *parent, RetroGitNotify *notify);
+    ~MainWidget();
 
 protected:
-	virtual void showEvent(QShowEvent *event) override;
+    virtual void showEvent(QShowEvent *event) override;
 
 private slots:
-	void createGroup();
-	void updateDisplay();
+    void createGroup();
+    void updateDisplay();
+    void selectGroupSet(int index);
+    void groupListCustomPopupMenu(QPoint point);
+    void showGroupDetails();
+    void editGroupDetails();
 
 private:
-	void loadGroupMeta();
-	void insertGroupsData(const std::list<RsGroupMetaData> &gitList);
-	void GroupMetaDataToGroupItemInfo(const RsGroupMetaData &groupInfo, GroupItemInfo &groupItemInfo);
-	void handleEvent_main_thread(std::shared_ptr<const RsEvent> event);
-	void processSettings(bool load);
+    void loadGroupMeta();
+    void insertGroupsData(const std::list<RsGroupMetaData> &gitList);
+    void GroupMetaDataToGroupItemInfo(const RsGroupMetaData &groupInfo,
+                                    GroupItemInfo &groupItemInfo);
+    void handleEvent_main_thread(std::shared_ptr<const RsEvent> event);
+    void processSettings(bool load);
 
-	QTreeWidgetItem *mYourGroups;
-	QTreeWidgetItem *mSubscribedGroups;
-	QTreeWidgetItem *mPopularGroups;
-	QTreeWidgetItem *mOtherGroups;
-	bool mInitialLoadDone = false;
+    QTreeWidgetItem *mActiveGroupsItem;
+    int mGroupSet = 0;
+    bool mInitialLoadDone = false;
 
-	RsEventsHandlerId_t mEventHandlerId;
+    RsEventsHandlerId_t mEventHandlerId;
 
-	Ui::MainWidget *ui;
-
+    Ui::MainWidget *ui;
 };
 
 #endif // MAINPAGE_H
