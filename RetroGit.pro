@@ -18,6 +18,7 @@ CONFIG += c++17
 
 DEPENDPATH  += ../../retroshare-gui/src/temp/ui ../../libretroshare/src
 INCLUDEPATH += ../../retroshare-gui/src/temp/ui ../../libretroshare/src
+INCLUDEPATH += ../../../Build/retroshare-gui/src/temp/ui
 INCLUDEPATH += ../../retroshare-gui/src/retroshare-gui
 
 INCLUDEPATH += ../../rapidjson-1.1.0

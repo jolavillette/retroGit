@@ -43,6 +43,7 @@ public:
 	virtual uint16_t rs_service_id() const;
 
 	virtual void setPlugInHandler(RsPluginHandler *pgHandler);
+	virtual void stop();
 
 	virtual QIcon *qt_icon() const;
 	virtual MainPage *qt_page() const;

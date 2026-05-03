@@ -169,6 +169,7 @@ p3Service *RetroGitPlugin::p3_service() const
             mPgpAuxUtils);
 
         mRetroGit->setNetworkExchangeService(mRetroGitNetService);
+        mRetroGit->start("RetroGit Engine");
     }
     return mRetroGitNetService;
 }
@@ -183,6 +184,14 @@ p3Config *RetroGitPlugin::p3_config() const
 void RetroGitPlugin::setPlugInHandler(RsPluginHandler *pgHandler)
 {
 	mPlugInHandler = pgHandler;
+}
+
+void RetroGitPlugin::stop()
+{
+	if(mRetroGit)
+	{
+		mRetroGit->fullstop();
+	}
 }
 
 QIcon *RetroGitPlugin::qt_icon() const
