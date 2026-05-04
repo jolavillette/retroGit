@@ -40,7 +40,7 @@
 #include "util/qtthreadsutils.h"
 #include <util/rsthreads.h>
 
-#define IMAGE_GIT ":/images/git.png"
+#define IMAGE_GIT ":/images/git-white.png"
 
 MainWidget::MainWidget(QWidget *parent, RetroGitNotify *notify):
     MainPage(parent),
@@ -251,7 +251,7 @@ void MainWidget::GroupMetaDataToGroupItemInfo(const RsGroupMetaData &groupInfo,G
   groupItemInfo.lastpost = DateTime::DateTimeFromTime_t(groupInfo.mLastPost);
   groupItemInfo.subscribeFlags = groupInfo.mSubscribeFlags;
 
-  groupItemInfo.icon = GxsIdDetails::makeColoredGroupIcon(groupInfo.mGroupId, IMAGE_GIT, GxsIdDetails::ORIGINAL);
+  groupItemInfo.icon = GxsIdDetails::makeDefaultGroupIcon(groupInfo.mGroupId, IMAGE_GIT, GxsIdDetails::ORIGINAL);
 }
 
 void MainWidget::updateDisplay()
