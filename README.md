@@ -4,9 +4,13 @@ This is a Git plugin
 
 # Dependencies 
 
-for windows install msys2 package
+### Install package dependencies:
 
-pacman -S mingw-w64-x86_64-libgit2
+#### Debian / Ubuntu / Linux Mint
+	sudo apt-get install libgit2
+
+#### Windows
+	pacman -S mingw-w64-x86_64-libgit2
 
 
 # build & install:
