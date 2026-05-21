@@ -316,14 +316,26 @@ void MainWidget::createGroup()
 
 void MainWidget::loadGroupMeta()
 {
+    std::cerr << "MainWidget::loadGroupMeta()";
+    std::cerr << std::endl;
+
   RsThread::async([this]() {
     // Fetch group metadata from backend
     std::list<RsGxsGroupId> groupIds; // empty list = get all groups
     std::vector<RsGitGroup> groups;
 
     if (!rsGit->getGroups(groupIds, groups)) {
-      std::cerr << "MainWidget::loadGroupMeta() Error getting groups"
+      std::cerr << "MainWidget::loadGroupMeta() Error getting groups from GXS"
                 << std::endl;
+      return;
+    }
+
+    if (groups.empty()) {
+      // Valid state: GXS is fine but no groups exist yet (fresh install /
+      // nothing synced). Update the UI to show an empty list.
+      RsQThreadUtils::postToObject(
+          [this]() { ui->treeWidget->fillGroupItems(mActiveGroupsItem, QList<GroupItemInfo>()); },
+          this);
       return;
     }
 
@@ -346,12 +358,13 @@ void MainWidget::loadGroupMeta()
 
 void MainWidget::insertGroupsData(const std::list<RsGroupMetaData> &gitList)
 {
+    std::cerr << "MainWidget::insertGroupsData()";
+    std::cerr << std::endl;
+    
   std::list<RsGroupMetaData>::const_iterator it;
 
   QList<GroupItemInfo> activeList;
   std::multimap<uint32_t, GroupItemInfo> popMap;
-  QList<GroupItemInfo> popList;
-  QList<GroupItemInfo> otherList;
 
   for (it = gitList.begin(); it != gitList.end(); ++it) {
     uint32_t flags = it->mSubscribeFlags;
@@ -378,27 +391,33 @@ void MainWidget::insertGroupsData(const std::list<RsGroupMetaData> &gitList)
     }
   }
 
+  // Determine how many top-popularity groups count as "popular".
+  // At least 5, or 10% of the pool — whichever is larger.
   uint32_t popCount = 5;
-  if (popCount < popMap.size() / 10) {
+  if (popMap.size() / 10 > popCount)
     popCount = popMap.size() / 10;
-  }
 
   uint32_t i = 0;
   uint32_t popLimit = 0;
+  bool allPopular = true; // true when popMap fits entirely in popCount
   std::multimap<uint32_t, GroupItemInfo>::reverse_iterator rit;
-  for (rit = popMap.rbegin(); ((rit != popMap.rend()) && (i < popCount));
-       ++rit, i++)
+  for (rit = popMap.rbegin(); rit != popMap.rend() && i < popCount; ++rit, ++i)
     ;
   if (rit != popMap.rend()) {
+    // There are more items beyond the popular window.
     popLimit = rit->first;
+    allPopular = false;
   }
 
   for (rit = popMap.rbegin(); rit != popMap.rend(); ++rit) {
-    if (rit->second.popularity < (int)popLimit) {
-      if (mGroupSet == 4 || mGroupSet == 0)
+    // An item is "popular" if it is within the top-popCount window,
+    // i.e. its popularity is >= popLimit (or every item is popular).
+    bool isPopular = allPopular || (rit->second.popularity >= (int)popLimit);
+    if (!isPopular) {
+      if (mGroupSet == 4 || mGroupSet == 0) // Other Repositories
         activeList.append(rit->second);
     } else {
-      if (mGroupSet == 3 || mGroupSet == 0)
+      if (mGroupSet == 3 || mGroupSet == 0) // Popular Repositories
         activeList.append(rit->second);
     }
   }

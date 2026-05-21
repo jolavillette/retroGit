@@ -278,21 +278,22 @@ bool p3Git::getGroups(const std::list<RsGxsGroupId> &groupIds,std::vector<RsGitG
 
     std::vector<RsGxsGrpItem *> grpItems;
     if (!RsGenExchange::getGroupData(token, grpItems)) {
-    return false;
+        return false; // Real error: token or data retrieval failed
     }
 
     for (std::vector<RsGxsGrpItem *>::iterator it = grpItems.begin();
-       it != grpItems.end(); ++it) {
-    RsGitGroupItem *gitItem = dynamic_cast<RsGitGroupItem *>(*it);
-    if (gitItem) {
-      RsGitGroup g = gitItem->mGroup;
-      g.mMeta = gitItem->meta;
-      groups.push_back(g);
-    }
-    delete *it;
+         it != grpItems.end(); ++it) {
+        RsGitGroupItem *gitItem = dynamic_cast<RsGitGroupItem *>(*it);
+        if (gitItem) {
+            RsGitGroup g = gitItem->mGroup;
+            g.mMeta = gitItem->meta;
+            groups.push_back(g);
+        }
+        delete *it;
     }
 
-    return !groups.empty();
+    // Return true even when groups is empty — that is a valid state
+    return true;
 }
 
 // Function which will update the edited information in the git group

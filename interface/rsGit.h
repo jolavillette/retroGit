@@ -154,6 +154,4 @@ public:
     virtual void setMessageReadStatus(uint32_t &token,const RsGxsGrpMsgIdPair &msgId,bool read) = 0;
 };
 
-extern RsGit *rsGit;
-
 #endif // INTERFACE_RS_GIT_H
