@@ -157,13 +157,13 @@ MainWidget::MainWidget(QWidget *parent, RetroGitNotify *notify):
     QWidget *repoBrowserTab = new QWidget();
     QVBoxLayout *repoBrowserLayout = new QVBoxLayout(repoBrowserTab);
     
-    QLabel *lblBrowser = new QLabel(tr("Files in the HEAD commit of the bare repository (Network State):"), repoBrowserTab);
+    QLabel *lblBrowser = new QLabel(tr("Files in the HEAD commit of the bare repository:"), repoBrowserTab);
     repoBrowserLayout->addWidget(lblBrowser);
     
     mRepoBrowserList = new QListWidget(repoBrowserTab);
     repoBrowserLayout->addWidget(mRepoBrowserList);
     
-    ui->rightPaneTabWidget->addTab(repoBrowserTab, QIcon(":/images/git.png"), tr("Repository Browser"));
+    ui->rightPaneTabWidget->addTab(repoBrowserTab, QIcon(":/images/git.png"), tr("Files"));
     ui->rightPaneTabWidget->setTabsClosable(true);
     connect(ui->rightPaneTabWidget, SIGNAL(tabCloseRequested(int)), this, SLOT(onTabCloseRequested(int)));
 
@@ -327,15 +327,6 @@ void MainWidget::loadGroupMeta()
     if (!rsGit->getGroups(groupIds, groups)) {
       std::cerr << "MainWidget::loadGroupMeta() Error getting groups from GXS"
                 << std::endl;
-      return;
-    }
-
-    if (groups.empty()) {
-      // Valid state: GXS is fine but no groups exist yet (fresh install /
-      // nothing synced). Update the UI to show an empty list.
-      RsQThreadUtils::postToObject(
-          [this]() { ui->treeWidget->fillGroupItems(mActiveGroupsItem, QList<GroupItemInfo>()); },
-          this);
       return;
     }
 
