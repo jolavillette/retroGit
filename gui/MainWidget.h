@@ -26,6 +26,7 @@
 #include "gui/RetroGitNotify.h"
 #include <retroshare/rsfiles.h>
 #include <retroshare/rspeers.h>
+#include "interface/rsGit.h"
 
 #include "gui/common/GroupTreeWidget.h"
 #include <list>
@@ -61,6 +62,8 @@ private slots:
     void groupListCustomPopupMenu(QPoint point);
     void showGroupDetails();
     void editGroupDetails();
+    void subscribeToGroup();
+    void unsubscribeFromGroup();
     
     void onPushClicked();
     void onPullClicked();
@@ -73,8 +76,12 @@ private slots:
     void onLocalPathChanged(const QString &text);
     void onCommitSelectionChanged();
     void onChangedFilesContextMenu(const QPoint &pos);
+    void onChangedFilesDoubleClicked(class QTreeWidgetItem *item, int column);
     void onCommitTableContextMenu(const QPoint &pos);
     void onTabCloseRequested(int index);
+    void pollDownloadProgress();
+    void onDownloadClicked();
+    void onCancelDownloadClicked();
 
 private:
     void showDiffForFile(const QString &filePath);
@@ -89,6 +96,7 @@ private:
                                     GroupItemInfo &groupItemInfo);
     void handleEvent_main_thread(std::shared_ptr<const RsEvent> event);
     void processSettings(bool load);
+    void populatePackfiles(const QString &groupId);
 
     QTreeWidgetItem *mActiveGroupsItem;
     int mGroupSet = 0;
@@ -107,6 +115,9 @@ private:
     class QPushButton *mBtnCommit;
     class QTableWidget *mCommitTable;
     class QListWidget *mRepoBrowserList;
+    class QTableWidget *mPackfilesTable;
+    class QTimer *mDownloadPollTimer;
+    std::vector<RsGitUpdate> mAvailableUpdates;
 
     // UI elements for commit details (left pane)
     class QWidget *mCommitDetailsWidget;

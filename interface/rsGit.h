@@ -121,6 +121,32 @@ public:
     virtual bool getGroups(const std::list<RsGxsGroupId> &groupIds,std::vector<RsGitGroup> &groups) = 0;
 
     /**
+     * @brief Retrieve all push updates (commits/packfiles metadata) for a group.
+     */
+    virtual bool getUpdates(const RsGxsGroupId &groupId, std::vector<RsGitUpdate> &updates) = 0;
+
+    /**
+     * @brief Manually unpack a downloaded packfile and update refs.
+     */
+    virtual bool unpackUpdate(const RsGxsGroupId &groupId, const RsGxsMessageId &msgId, const RsFileHash &fileHash, const std::map<std::string, std::string> &refUpdates) = 0;
+
+    /**
+    * @brief Set the processed status of a message (commit/issue)
+    * @param msgId The Group ID and Message ID pair
+    * @param processed True to mark as processed, false for unprocessed
+    * @return true if successful
+    */
+    virtual bool setMessageProcessedStatus(const RsGxsGrpMsgIdPair &msgId, bool processed) = 0;
+
+    /**
+    * @brief Async set the processed status of a message
+    * @param token Request token
+    * @param msgId The Group ID and Message ID pair
+    * @param processed True to mark as processed, false for unprocessed
+    */
+    virtual void setMessageProcessedStatus(uint32_t &token, const RsGxsGrpMsgIdPair &msgId, bool processed) = 0;
+
+    /**
     * @brief Subscribe or unsubscribe to a RetroGit group
     * @param token Request token
     * @param groupId ID of the group

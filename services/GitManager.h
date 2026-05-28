@@ -39,6 +39,12 @@ struct GitDiffLine {
     std::string text;
 };
 
+struct GitLocalChange {
+    std::string path;
+    char status; // '+', '-', '~', '?'
+    std::string color_hex;
+};
+
 class GitManager
 {
 public:
@@ -118,6 +124,11 @@ public:
      * @brief Create a packfile from the local repository and return ref updates.
      */
     static bool createPackfile(const std::string &repoPath, std::string &packfileData, std::map<std::string, std::string> &refUpdates);
+
+    /**
+     * @brief Retrieve uncommitted changes in the repository.
+     */
+    static bool getLocalChanges(const std::string& repoPath, std::vector<GitLocalChange>& changes);
 };
 
 #endif // GITMANAGER_H

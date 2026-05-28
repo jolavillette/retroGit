@@ -33,6 +33,7 @@
 #include "GitCommitDialog.h"
 
 #include <QMenu>
+#include <QTimer>
 #include <QTime>
 #include <iostream>
 #include <string>
@@ -40,6 +41,7 @@
 #include "gui/common/RSTreeWidget.h"
 #include "util/DateTime.h"
 #include "util/qtthreadsutils.h"
+#include "util/misc.h"
 #include <util/rsthreads.h>
 #include <QLabel>
 #include <QLineEdit>
@@ -67,6 +69,7 @@
 #include <QTabBar>
 #include <QFileInfo>
 #include <retroshare/rsfiles.h>
+#include <retroshare/rsidentity.h>
 
 #define IMAGE_GIT ":/images/git-white.png"
 
@@ -164,10 +167,29 @@ MainWidget::MainWidget(QWidget *parent, RetroGitNotify *notify):
     repoBrowserLayout->addWidget(mRepoBrowserList);
     
     ui->rightPaneTabWidget->addTab(repoBrowserTab, QIcon(":/images/git.png"), tr("Files"));
+    
+    // Packfiles / Available Pushes Tab
+    QWidget *packfilesTab = new QWidget();
+    QVBoxLayout *packfilesLayout = new QVBoxLayout(packfilesTab);
+    
+    QLabel *lblPackfiles = new QLabel(tr("Available Pushes to download manually from GXS:"), packfilesTab);
+    packfilesLayout->addWidget(lblPackfiles);
+    
+    mPackfilesTable = new QTableWidget(0, 6, packfilesTab);
+    mPackfilesTable->setHorizontalHeaderLabels(QStringList() << tr("Author") << tr("Date") << tr("Refs Updated") << tr("Size") << tr("Status / Progress") << tr("Action"));
+    mPackfilesTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    mPackfilesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    mPackfilesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    packfilesLayout->addWidget(mPackfilesTable);
+    
+    ui->rightPaneTabWidget->addTab(packfilesTab, QIcon(":/images/git.png"), tr("Pushes / Packs"));
+    
     ui->rightPaneTabWidget->setTabsClosable(true);
     connect(ui->rightPaneTabWidget, SIGNAL(tabCloseRequested(int)), this, SLOT(onTabCloseRequested(int)));
 
-    // load settings
+    mDownloadPollTimer = new QTimer(this);
+    connect(mDownloadPollTimer, SIGNAL(timeout()), this, SLOT(pollDownloadProgress()));
+
     processSettings(true);
 
     connect(newGroupButton, SIGNAL(clicked()), this, SLOT(createGroup()));
@@ -247,6 +269,7 @@ MainWidget::MainWidget(QWidget *parent, RetroGitNotify *notify):
     mChangedFilesTree->setStyleSheet("QTreeView { border: none; background: transparent; }");
     mChangedFilesTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(mChangedFilesTree, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onChangedFilesContextMenu(QPoint)));
+    connect(mChangedFilesTree, SIGNAL(itemDoubleClicked(QTreeWidgetItem*,int)), this, SLOT(onChangedFilesDoubleClicked(QTreeWidgetItem*,int)));
     detailsLayout->addWidget(mChangedFilesTree);
 
     ui->verticalLayout->addWidget(mCommitDetailsWidget);
@@ -503,6 +526,18 @@ void MainWidget::groupListCustomPopupMenu(QPoint /*point*/)
     action = contextMnu.addAction(QIcon(":/images/edit.png"), tr("Edit Group Details"), this, SLOT(editGroupDetails()));
     action->setEnabled(!groupId.isEmpty() && IS_GROUP_ADMIN(subscribeFlags));
 
+    contextMnu.addSeparator();
+
+    if (!IS_GROUP_ADMIN(subscribeFlags)) {
+        if (IS_GROUP_SUBSCRIBED(subscribeFlags)) {
+            action = contextMnu.addAction(QIcon(), tr("Unsubscribe"), this, SLOT(unsubscribeFromGroup()));
+            action->setEnabled(!groupId.isEmpty());
+        } else {
+            action = contextMnu.addAction(QIcon(), tr("Subscribe"), this, SLOT(subscribeToGroup()));
+            action->setEnabled(!groupId.isEmpty());
+        }
+    }
+
     contextMnu.exec(QCursor::pos());
 }
 
@@ -538,6 +573,44 @@ void MainWidget::editGroupDetails()
     dialog.exec();
 }
 
+void MainWidget::subscribeToGroup()
+{
+    if (!ui->treeWidget || !ui->treeWidget->treeWidget())
+        return;
+    QTreeWidgetItem *item = ui->treeWidget->treeWidget()->currentItem();
+    if (!item)
+        return;
+
+    QString groupId = ui->treeWidget->itemId(item);
+    if (groupId.isEmpty())
+        return;
+
+    if (rsGit) {
+        if (rsGit->subscribe(RsGxsGroupId(groupId.toStdString()), true)) {
+            updateDisplay();
+        }
+    }
+}
+
+void MainWidget::unsubscribeFromGroup()
+{
+    if (!ui->treeWidget || !ui->treeWidget->treeWidget())
+        return;
+    QTreeWidgetItem *item = ui->treeWidget->treeWidget()->currentItem();
+    if (!item)
+        return;
+
+    QString groupId = ui->treeWidget->itemId(item);
+    if (groupId.isEmpty())
+        return;
+
+    if (rsGit) {
+        if (rsGit->subscribe(RsGxsGroupId(groupId.toStdString()), false)) {
+            updateDisplay();
+        }
+    }
+}
+
 void MainWidget::saveRepoLocalPath(const QString &groupId, const QString &path)
 {
     Settings->beginGroup("RetroGit_WorkingDirs");
@@ -559,9 +632,9 @@ void MainWidget::onTreeSelectionChanged()
         mCommitDetailsWidget->hide();
     }
 
-    while (ui->rightPaneTabWidget->count() > 2) {
-        QWidget *tab = ui->rightPaneTabWidget->widget(2);
-        ui->rightPaneTabWidget->removeTab(2);
+    while (ui->rightPaneTabWidget->count() > 3) {
+        QWidget *tab = ui->rightPaneTabWidget->widget(3);
+        ui->rightPaneTabWidget->removeTab(3);
         delete tab;
     }
 
@@ -572,6 +645,11 @@ void MainWidget::onTreeSelectionChanged()
         mBtnPull->setEnabled(false);
         mBtnClone->setEnabled(false);
         mLocalPathEdit->clear();
+        mPackfilesTable->setRowCount(0);
+        mAvailableUpdates.clear();
+        if (mDownloadPollTimer) {
+            mDownloadPollTimer->stop();
+        }
         return;
     }
     
@@ -596,10 +674,11 @@ void MainWidget::onTreeSelectionChanged()
     mBtnPull->setEnabled(true);
     mBtnClone->setEnabled(!isAdmin);
     mBtnOpenFolder->setEnabled(hasPath);
-    mBtnCommit->setEnabled(hasPath);
+    mBtnCommit->setEnabled(hasPath && isAdmin);
     
     populateCommitLog(groupId);
     populateRepoBrowser(groupId);
+    populatePackfiles(groupId);
     
     if (mCommitTable->rowCount() == 0) {
         mBtnPush->setText(tr("Push & Publish"));
@@ -620,9 +699,38 @@ void MainWidget::populateCommitLog(const QString &groupId)
     }
     
     std::vector<GitCommitInfo> commits;
+    bool gotLog = GitManager::getCommitLog(repoPath, commits);
     
-    if (GitManager::getCommitLog(repoPath, commits)) {
-        mCommitTable->setRowCount(commits.size());
+    std::vector<GitLocalChange> localChanges;
+    bool hasLocalChanges = false;
+    if (GitManager::getLocalChanges(repoPath, localChanges) && !localChanges.empty()) {
+        hasLocalChanges = true;
+    }
+    
+    if (gotLog || hasLocalChanges) {
+        int offset = hasLocalChanges ? 1 : 0;
+        mCommitTable->setRowCount(commits.size() + offset);
+        
+        if (hasLocalChanges) {
+            QTableWidgetItem *itemHash = new QTableWidgetItem("*");
+            itemHash->setData(Qt::UserRole, QString("LOCAL_CHANGES"));
+            QFont font = itemHash->font();
+            font.setBold(true);
+            itemHash->setFont(font);
+            
+            QTableWidgetItem *itemMsg = new QTableWidgetItem(tr("Local changes (Uncommitted)"));
+            itemMsg->setFont(font);
+            itemMsg->setForeground(QBrush(QColor("#d35400"))); // Orange to highlight local changes
+            
+            QTableWidgetItem *itemAuth = new QTableWidgetItem("");
+            QTableWidgetItem *itemDate = new QTableWidgetItem("");
+            
+            mCommitTable->setItem(0, 0, itemHash);
+            mCommitTable->setItem(0, 1, itemMsg);
+            mCommitTable->setItem(0, 2, itemAuth);
+            mCommitTable->setItem(0, 3, itemDate);
+        }
+        
         for (int i = 0; i < (int)commits.size(); i++) {
             QTableWidgetItem *itemHash = new QTableWidgetItem(QString::fromStdString(commits[i].hash));
             itemHash->setData(Qt::UserRole, QString::fromStdString(commits[i].full_hash));
@@ -630,10 +738,10 @@ void MainWidget::populateCommitLog(const QString &groupId)
             QTableWidgetItem *itemAuth = new QTableWidgetItem(QString::fromStdString(commits[i].author));
             QTableWidgetItem *itemDate = new QTableWidgetItem(QString::fromStdString(commits[i].date));
             
-            mCommitTable->setItem(i, 0, itemHash);
-            mCommitTable->setItem(i, 1, itemMsg);
-            mCommitTable->setItem(i, 2, itemAuth);
-            mCommitTable->setItem(i, 3, itemDate);
+            mCommitTable->setItem(i + offset, 0, itemHash);
+            mCommitTable->setItem(i + offset, 1, itemMsg);
+            mCommitTable->setItem(i + offset, 2, itemAuth);
+            mCommitTable->setItem(i + offset, 3, itemDate);
         }
     }
 }
@@ -655,7 +763,23 @@ void MainWidget::populateRepoBrowser(const QString &groupId)
 void MainWidget::onLocalPathChanged(const QString &text)
 {
     mBtnOpenFolder->setEnabled(!text.isEmpty());
-    mBtnCommit->setEnabled(!text.isEmpty());
+    
+    bool isAdmin = false;
+    if (ui->treeWidget && ui->treeWidget->treeWidget()) {
+        QTreeWidgetItem *item = ui->treeWidget->treeWidget()->currentItem();
+        if (item) {
+            QString groupId = ui->treeWidget->itemId(item);
+            if (!groupId.isEmpty()) {
+                std::list<RsGxsGroupId> groupIds({RsGxsGroupId(groupId.toStdString())});
+                std::vector<RsGitGroup> groups;
+                if (rsGit && rsGit->getGroups(groupIds, groups) && !groups.empty()) {
+                    uint32_t flags = groups[0].mMeta.mSubscribeFlags;
+                    isAdmin = IS_GROUP_ADMIN(flags);
+                }
+            }
+        }
+    }
+    mBtnCommit->setEnabled(!text.isEmpty() && isAdmin);
     
     if (!ui->treeWidget || !ui->treeWidget->treeWidget()) return;
     QTreeWidgetItem *item = ui->treeWidget->treeWidget()->currentItem();
@@ -793,6 +917,12 @@ void MainWidget::onPushClicked()
         RsGitUpdate update;
         update.mMeta.mGroupId = RsGxsGroupId(groupId.toStdString());
         update.mRefUpdates = refUpdates;
+        
+        QStringList refNames;
+        for (auto it = refUpdates.begin(); it != refUpdates.end(); ++it) {
+            refNames << QString::fromStdString(it->first);
+        }
+        update.mMeta.mMsgName = QString("Git Push: %1").arg(refNames.join(", ")).toStdString();
 
         if (packfileData.size() <= 200000) {
             // Send inline
@@ -989,84 +1119,154 @@ void MainWidget::onCommitSelectionChanged()
         repoPath = localPath.toStdString();
     }
     
-    std::string authorName, authorEmail, summary, body, date;
-    std::vector<std::string> changedFiles;
-    
-    if (GitManager::getCommitDetails(repoPath, fullHash.toStdString(),
-                                     authorName, authorEmail,
-                                     summary, body,
-                                     date, changedFiles)) {
-        
-        mDetailsAuthorNameLabel->setText(QString::fromStdString(authorName));
-        if (authorEmail.empty()) {
-            mDetailsAuthorEmailLabel->hide();
-        } else {
-            mDetailsAuthorEmailLabel->setText(QString::fromStdString(authorEmail));
-            mDetailsAuthorEmailLabel->show();
-        }
-        mDetailsHashLabel->setText(fullHash.left(8));
-        mDetailsHashLabel->setToolTip(fullHash);
+    if (fullHash == "LOCAL_CHANGES") {
+        mDetailsAuthorNameLabel->setText("");
+        mDetailsAuthorEmailLabel->hide();
+        mDetailsHashLabel->setText(tr("Local"));
+        mDetailsHashLabel->setToolTip(tr("Local changes"));
         mDetailsHashLabel->setAlignment(Qt::AlignCenter);
-        mDetailsTitleLabel->setText(QString::fromStdString(summary));
+        mDetailsTitleLabel->setText(tr("Local changes (Uncommitted)"));
         mDetailsTitleLabel->setAlignment(Qt::AlignCenter);
         
-        if (body.empty()) {
-            mDetailsBodyText->setText(tr("<No description provided>"));
-            mDetailsBodyText->setStyleSheet("color: #777777; font-style: italic; font-size: 13px;");
-            mDetailsBodyText->setAlignment(Qt::AlignCenter);
-        } else {
-            mDetailsBodyText->setText(QString::fromStdString(body));
-            mDetailsBodyText->setStyleSheet("color: #34495e; font-style: normal; font-size: 13px;");
-            mDetailsBodyText->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-        }
+        mDetailsBodyText->setText(tr("Uncommitted changes in the working directory."));
+        mDetailsBodyText->setStyleSheet("color: #34495e; font-style: normal; font-size: 13px;");
+        mDetailsBodyText->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
         
-        mDetailsDateLabel->setText(QString::fromStdString(date));
+        QDateTime now = QDateTime::currentDateTime();
+        mDetailsDateLabel->setText(now.toString("yyyy-MM-dd hh:mm"));
         
         mChangedFilesTree->clear();
         
-        for (const std::string& filePath : changedFiles) {
-            QStringList pathParts = QString::fromStdString(filePath).split('/');
-            QTreeWidgetItem *parentItem = nullptr;
-            
-            for (int i = 0; i < pathParts.size(); ++i) {
-                QString part = pathParts[i];
-                if (part.isEmpty()) continue;
+        std::vector<GitLocalChange> changes;
+        if (GitManager::getLocalChanges(repoPath, changes)) {
+            for (const GitLocalChange& change : changes) {
+                QStringList pathParts = QString::fromStdString(change.path).split('/');
+                QTreeWidgetItem *parentItem = nullptr;
                 
-                QTreeWidgetItem *childItem = nullptr;
-                int childCount = parentItem ? parentItem->childCount() : mChangedFilesTree->topLevelItemCount();
-                for (int j = 0; j < childCount; ++j) {
-                    QTreeWidgetItem *item = parentItem ? parentItem->child(j) : mChangedFilesTree->topLevelItem(j);
-                    if (item->text(0) == part) {
-                        childItem = item;
-                        break;
-                    }
-                }
-                
-                if (!childItem) {
-                    childItem = new QTreeWidgetItem();
-                    childItem->setText(0, part);
+                for (int i = 0; i < pathParts.size(); ++i) {
+                    QString part = pathParts[i];
+                    if (part.isEmpty()) continue;
                     
-                    if (i == pathParts.size() - 1) {
-                        childItem->setIcon(0, style()->standardIcon(QStyle::SP_FileIcon));
-                        childItem->setData(0, Qt::UserRole, QString::fromStdString(filePath));
-                    } else {
-                        childItem->setIcon(0, style()->standardIcon(QStyle::SP_DirIcon));
+                    QTreeWidgetItem *childItem = nullptr;
+                    int childCount = parentItem ? parentItem->childCount() : mChangedFilesTree->topLevelItemCount();
+                    for (int j = 0; j < childCount; ++j) {
+                        QTreeWidgetItem *item = parentItem ? parentItem->child(j) : mChangedFilesTree->topLevelItem(j);
+                        if (item->data(0, Qt::UserRole + 1).toString() == part) {
+                            childItem = item;
+                            break;
+                        }
                     }
                     
-                    if (parentItem) {
-                        parentItem->addChild(childItem);
-                    } else {
-                        mChangedFilesTree->addTopLevelItem(childItem);
+                    if (!childItem) {
+                        childItem = new QTreeWidgetItem();
+                        childItem->setData(0, Qt::UserRole + 1, part);
+                        
+                        if (i == pathParts.size() - 1) {
+                            QString prefixedText = QString("%1 %2").arg(change.status).arg(part);
+                            childItem->setText(0, prefixedText);
+                            childItem->setForeground(0, QBrush(QColor(QString::fromStdString(change.color_hex))));
+                            childItem->setIcon(0, style()->standardIcon(QStyle::SP_FileIcon));
+                            childItem->setData(0, Qt::UserRole, QString::fromStdString(change.path));
+                        } else {
+                            childItem->setText(0, part);
+                            childItem->setIcon(0, style()->standardIcon(QStyle::SP_DirIcon));
+                        }
+                        
+                        if (parentItem) {
+                            parentItem->addChild(childItem);
+                        } else {
+                            mChangedFilesTree->addTopLevelItem(childItem);
+                        }
                     }
+                    parentItem = childItem;
                 }
-                parentItem = childItem;
             }
+            mChangedFilesTree->expandAll();
+            mCommitDetailsWidget->show();
+        } else {
+            mCommitDetailsWidget->hide();
         }
-        
-        mChangedFilesTree->expandAll();
-        mCommitDetailsWidget->show();
     } else {
-        mCommitDetailsWidget->hide();
+        std::string authorName, authorEmail, summary, body, date;
+        std::vector<std::string> changedFiles;
+        
+        if (GitManager::getCommitDetails(repoPath, fullHash.toStdString(),
+                                         authorName, authorEmail,
+                                         summary, body,
+                                         date, changedFiles)) {
+            
+            mDetailsAuthorNameLabel->setText(QString::fromStdString(authorName));
+            if (authorEmail.empty()) {
+                mDetailsAuthorEmailLabel->hide();
+            } else {
+                mDetailsAuthorEmailLabel->setText(QString::fromStdString(authorEmail));
+                mDetailsAuthorEmailLabel->show();
+            }
+            mDetailsHashLabel->setText(fullHash.left(8));
+            mDetailsHashLabel->setToolTip(fullHash);
+            mDetailsHashLabel->setAlignment(Qt::AlignCenter);
+            mDetailsTitleLabel->setText(QString::fromStdString(summary));
+            mDetailsTitleLabel->setAlignment(Qt::AlignCenter);
+            
+            if (body.empty()) {
+                mDetailsBodyText->setText(tr("<No description provided>"));
+                mDetailsBodyText->setStyleSheet("color: #777777; font-style: italic; font-size: 13px;");
+                mDetailsBodyText->setAlignment(Qt::AlignCenter);
+            } else {
+                mDetailsBodyText->setText(QString::fromStdString(body));
+                mDetailsBodyText->setStyleSheet("color: #34495e; font-style: normal; font-size: 13px;");
+                mDetailsBodyText->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+            }
+            
+            mDetailsDateLabel->setText(QString::fromStdString(date));
+            
+            mChangedFilesTree->clear();
+            
+            for (const std::string& filePath : changedFiles) {
+                QStringList pathParts = QString::fromStdString(filePath).split('/');
+                QTreeWidgetItem *parentItem = nullptr;
+                
+                for (int i = 0; i < pathParts.size(); ++i) {
+                    QString part = pathParts[i];
+                    if (part.isEmpty()) continue;
+                    
+                    QTreeWidgetItem *childItem = nullptr;
+                    int childCount = parentItem ? parentItem->childCount() : mChangedFilesTree->topLevelItemCount();
+                    for (int j = 0; j < childCount; ++j) {
+                        QTreeWidgetItem *item = parentItem ? parentItem->child(j) : mChangedFilesTree->topLevelItem(j);
+                        if (item->data(0, Qt::UserRole + 1).toString() == part) {
+                            childItem = item;
+                            break;
+                        }
+                    }
+                    
+                    if (!childItem) {
+                        childItem = new QTreeWidgetItem();
+                        childItem->setText(0, part);
+                        childItem->setData(0, Qt::UserRole + 1, part);
+                        
+                        if (i == pathParts.size() - 1) {
+                            childItem->setIcon(0, style()->standardIcon(QStyle::SP_FileIcon));
+                            childItem->setData(0, Qt::UserRole, QString::fromStdString(filePath));
+                        } else {
+                            childItem->setIcon(0, style()->standardIcon(QStyle::SP_DirIcon));
+                        }
+                        
+                        if (parentItem) {
+                            parentItem->addChild(childItem);
+                        } else {
+                            mChangedFilesTree->addTopLevelItem(childItem);
+                        }
+                    }
+                    parentItem = childItem;
+                }
+            }
+            
+            mChangedFilesTree->expandAll();
+            mCommitDetailsWidget->show();
+        } else {
+            mCommitDetailsWidget->hide();
+        }
     }
 }
 
@@ -1101,9 +1301,19 @@ void MainWidget::onChangedFilesContextMenu(const QPoint &pos)
     }
 }
 
+void MainWidget::onChangedFilesDoubleClicked(QTreeWidgetItem *item, int column)
+{
+    (void)column;
+    if (!item) return;
+    QString filePath = item->data(0, Qt::UserRole).toString();
+    if (!filePath.isEmpty()) {
+        showDiffForFile(filePath);
+    }
+}
+
 void MainWidget::onTabCloseRequested(int index)
 {
-    if (index < 2) return; // Prevent closing the core tabs ("Working Directory", "Repository Browser")
+    if (index < 3) return; // Prevent closing the core tabs ("Working Directory", "Repository Browser", "Pushes / Packs")
     
     QWidget *tab = ui->rightPaneTabWidget->widget(index);
     ui->rightPaneTabWidget->removeTab(index);
@@ -1245,11 +1455,12 @@ void MainWidget::showDiffForFile(const QString &filePath)
         ui->rightPaneTabWidget->setCurrentIndex(newIndex);
     }
 
-    // Hide close buttons for the first two tabs (indices 0 and 1)
+    // Hide close buttons for the first three tabs (indices 0, 1, and 2)
     QTabBar *bar = ui->rightPaneTabWidget->findChild<QTabBar*>();
     if (bar) {
         bar->setTabButton(0, QTabBar::RightSide, nullptr);
         bar->setTabButton(1, QTabBar::RightSide, nullptr);
+        bar->setTabButton(2, QTabBar::RightSide, nullptr);
     }
 }
 
@@ -1310,7 +1521,13 @@ void MainWidget::showDiffForCommit(const QString &commitHash)
     html += "</style></head><body>";
 
     // Path Banner
-    html += "<div class='header-banner'>" + tr("Commit Diff: ") + commitHash.left(8) + "</div>";
+    QString bannerText;
+    if (commitHash == "LOCAL_CHANGES") {
+        bannerText = tr("Local Changes Diff");
+    } else {
+        bannerText = tr("Commit Diff: ") + commitHash.left(8);
+    }
+    html += "<div class='header-banner'>" + bannerText + "</div>";
 
     bool inHunk = false;
     for (const GitDiffLine& line : diffLines) {
@@ -1360,7 +1577,13 @@ void MainWidget::showDiffForCommit(const QString &commitHash)
 
     html += "</body></html>";
 
-    QString tabTitle = tr("Diff: ") + commitHash.left(8);
+    QString tabTitle;
+    if (commitHash == "LOCAL_CHANGES") {
+        tabTitle = tr("Diff: Local Changes");
+    } else {
+        tabTitle = tr("Diff: ") + commitHash.left(8);
+    }
+
     int tabIndex = -1;
     for (int i = 2; i < ui->rightPaneTabWidget->count(); ++i) {
         if (ui->rightPaneTabWidget->tabText(i) == tabTitle) {
@@ -1398,6 +1621,324 @@ void MainWidget::showDiffForCommit(const QString &commitHash)
     if (bar) {
         bar->setTabButton(0, QTabBar::RightSide, nullptr);
         bar->setTabButton(1, QTabBar::RightSide, nullptr);
+        bar->setTabButton(2, QTabBar::RightSide, nullptr);
+    }
+}
+
+void MainWidget::populatePackfiles(const QString &groupId)
+{
+    mPackfilesTable->setRowCount(0);
+    mAvailableUpdates.clear();
+    
+    RsThread::async([this, groupId]() {
+        std::vector<RsGitUpdate> updates;
+        if (rsGit && rsGit->getUpdates(RsGxsGroupId(groupId.toStdString()), updates)) {
+            RsQThreadUtils::postToObject([this, updates, groupId]() {
+                // Check if the selected group has changed in the meantime
+                QTreeWidgetItem *item = ui->treeWidget->treeWidget()->currentItem();
+                if (!item || ui->treeWidget->itemId(item) != groupId) {
+                    return;
+                }
+                
+                mAvailableUpdates = updates;
+                mPackfilesTable->setRowCount(updates.size());
+                
+                bool hasPendingDownloads = false;
+                
+                for (int i = 0; i < (int)updates.size(); ++i) {
+                    const auto &update = updates[i];
+                    
+                    // Author Name
+                    QString author = tr("Anonymous");
+                    if (!update.mMeta.mAuthorId.isNull()) {
+                        if (rsIdentity) {
+                            RsIdentityDetails idDetails;
+                            if (rsIdentity->getIdDetails(update.mMeta.mAuthorId, idDetails)) {
+                                author = QString::fromUtf8(idDetails.mNickname.c_str());
+                            }
+                        }
+                        if (author.isEmpty() || author == tr("Anonymous")) {
+                            author = QString::fromStdString(update.mMeta.mAuthorId.toStdString()).left(12);
+                        }
+                    }
+                    QTableWidgetItem *itemAuth = new QTableWidgetItem(author);
+                    mPackfilesTable->setItem(i, 0, itemAuth);
+                    
+                    // Date
+                    QString dateStr = QDateTime::fromTime_t(update.mMeta.mPublishTs).toString(Qt::SystemLocaleShortDate);
+                    QTableWidgetItem *itemDate = new QTableWidgetItem(dateStr);
+                    mPackfilesTable->setItem(i, 1, itemDate);
+                    
+                    // Refs Updated
+                    QStringList refs;
+                    for (const auto &pair : update.mRefUpdates) {
+                        refs << QString::fromStdString(pair.first);
+                    }
+                    QTableWidgetItem *itemRefs = new QTableWidgetItem(refs.join(", "));
+                    itemRefs->setToolTip(refs.join("\n"));
+                    mPackfilesTable->setItem(i, 2, itemRefs);
+                    
+                    // Size and Status/Action
+                    if (update.mFiles.empty()) {
+                        // Inline update (unpacked immediately)
+                        bool isUnprocessed = (update.mMeta.mMsgStatus & GXS_SERV::GXS_MSG_STATUS_UNPROCESSED);
+                        if (isUnprocessed) {
+                            if (!update.mPackfileData.empty()) {
+                                std::string repoPath = GitManager::getBareRepoPath(groupId.toStdString());
+                                if (GitManager::unpackPackfile(repoPath, update.mPackfileData, update.mRefUpdates)) {
+                                    if (rsGit) {
+                                        rsGit->setMessageProcessedStatus(RsGxsGrpMsgIdPair(RsGxsGroupId(groupId.toStdString()), update.mMeta.mMsgId), true);
+                                    }
+                                    isUnprocessed = false;
+                                }
+                            }
+                        }
+
+                        QTableWidgetItem *itemSize = new QTableWidgetItem(tr("Inline"));
+                        mPackfilesTable->setItem(i, 3, itemSize);
+                        
+                        QTableWidgetItem *itemStatus = new QTableWidgetItem(isUnprocessed ? tr("Downloaded, unpacking...") : tr("Completed (Inline)"));
+                        mPackfilesTable->setItem(i, 4, itemStatus);
+                        
+                        QTableWidgetItem *itemAction = new QTableWidgetItem(tr("-"));
+                        mPackfilesTable->setItem(i, 5, itemAction);
+                    } else {
+                        const auto &file = update.mFiles[0];
+                        QTableWidgetItem *itemSize = new QTableWidgetItem(misc::friendlyUnit(file.mSize));
+                        mPackfilesTable->setItem(i, 3, itemSize);
+                        
+                        // Query status
+                        FileInfo info;
+                        bool hasFile = rsFiles && rsFiles->alreadyHaveFile(file.mHash, info);
+                        
+                        if (!hasFile && rsFiles) {
+                            rsFiles->FileDetails(file.mHash, RS_FILE_HINTS_DOWNLOAD | RS_FILE_HINTS_SPEC_ONLY, info);
+                            if (info.downloadStatus == FT_STATE_COMPLETE) {
+                                hasFile = true;
+                            }
+                        }
+                        
+                        if (hasFile) {
+                            bool isUnprocessed = (update.mMeta.mMsgStatus & GXS_SERV::GXS_MSG_STATUS_UNPROCESSED);
+                            if (isUnprocessed) {
+                                std::cout << "MainWidget::populatePackfiles: Found fully downloaded but unprocessed update, unpacking: " << file.mHash.toStdString() << std::endl;
+                                if (rsGit && rsGit->unpackUpdate(RsGxsGroupId(groupId.toStdString()), update.mMeta.mMsgId, file.mHash, update.mRefUpdates)) {
+                                    isUnprocessed = false;
+                                }
+                            }
+
+                            QTableWidgetItem *itemStatus = new QTableWidgetItem(isUnprocessed ? tr("Downloaded, unpacking...") : tr("Completed"));
+                            mPackfilesTable->setItem(i, 4, itemStatus);
+                            
+                            QTableWidgetItem *itemAction = new QTableWidgetItem(tr("-"));
+                            mPackfilesTable->setItem(i, 5, itemAction);
+                        } else {
+                            // Not downloaded yet or in progress
+                            QString statusStr = tr("Remote");
+                            bool isDownloading = false;
+                            
+                            if (rsFiles) {
+                                switch (info.downloadStatus) {
+                                    case FT_STATE_DOWNLOADING:
+                                        {
+                                            double percent = 0.0;
+                                            if (info.size > 0) percent = (double)info.avail * 100.0 / (double)info.size;
+                                            statusStr = tr("Downloading (%1%)").arg(QString::number(percent, 'f', 1));
+                                            isDownloading = true;
+                                        }
+                                        break;
+                                    case FT_STATE_WAITING:
+                                        statusStr = tr("Waiting");
+                                        isDownloading = true;
+                                        break;
+                                    case FT_STATE_QUEUED:
+                                        statusStr = tr("Queued");
+                                        isDownloading = true;
+                                        break;
+                                    case FT_STATE_PAUSED:
+                                        statusStr = tr("Paused");
+                                        isDownloading = true;
+                                        break;
+                                    case FT_STATE_CHECKING_HASH:
+                                        statusStr = tr("Checking hash");
+                                        isDownloading = true;
+                                        break;
+                                    default:
+                                        break;
+                                }
+                            }
+                            
+                            QTableWidgetItem *itemStatus = new QTableWidgetItem(statusStr);
+                            mPackfilesTable->setItem(i, 4, itemStatus);
+                            
+                            if (isDownloading) {
+                                hasPendingDownloads = true;
+                                QPushButton *btnCancel = new QPushButton(tr("Cancel"), mPackfilesTable);
+                                btnCancel->setProperty("fileHash", QString::fromStdString(file.mHash.toStdString()));
+                                connect(btnCancel, SIGNAL(clicked()), this, SLOT(onCancelDownloadClicked()));
+                                mPackfilesTable->setCellWidget(i, 5, btnCancel);
+                            } else {
+                                QPushButton *btnDl = new QPushButton(tr("Download"), mPackfilesTable);
+                                btnDl->setProperty("fileHash", QString::fromStdString(file.mHash.toStdString()));
+                                btnDl->setProperty("fileName", QString::fromStdString(file.mName));
+                                btnDl->setProperty("fileSize", (qlonglong)file.mSize);
+                                connect(btnDl, SIGNAL(clicked()), this, SLOT(onDownloadClicked()));
+                                mPackfilesTable->setCellWidget(i, 5, btnDl);
+                            }
+                        }
+                    }
+                }
+                
+                if (hasPendingDownloads) {
+                    mDownloadPollTimer->start(1000); // Poll every second
+                } else {
+                    mDownloadPollTimer->stop();
+                }
+            }, this);
+        }
+    });
+}
+
+void MainWidget::onDownloadClicked()
+{
+    QPushButton *btn = qobject_cast<QPushButton*>(sender());
+    if (!btn) return;
+    
+    QString fileHashStr = btn->property("fileHash").toString();
+    QString fileName = btn->property("fileName").toString();
+    qlonglong fileSize = btn->property("fileSize").toLongLong();
+    
+    RsFileHash fileHash(fileHashStr.toStdString());
+    
+    std::list<RsPeerId> sources;
+    FileInfo fileInfo;
+    if (rsFiles) {
+        rsFiles->FileDetails(fileHash, RS_FILE_HINTS_REMOTE, fileInfo);
+        for (const auto &peer : fileInfo.peers) {
+            sources.push_back(peer.peerId);
+        }
+        
+        TransferRequestFlags flags = RS_FILE_REQ_ANONYMOUS_ROUTING;
+        rsFiles->FileRequest(fileName.toStdString(), fileHash, fileSize, "", flags, sources);
+    }
+    
+    // Trigger UI refresh
+    QTreeWidgetItem *item = ui->treeWidget->treeWidget()->currentItem();
+    if (item) {
+        populatePackfiles(ui->treeWidget->itemId(item));
+    }
+}
+
+void MainWidget::onCancelDownloadClicked()
+{
+    QPushButton *btn = qobject_cast<QPushButton*>(sender());
+    if (!btn) return;
+    
+    QString fileHashStr = btn->property("fileHash").toString();
+    RsFileHash fileHash(fileHashStr.toStdString());
+    
+    if (rsFiles) {
+        rsFiles->FileCancel(fileHash);
+    }
+    
+    // Trigger UI refresh
+    QTreeWidgetItem *item = ui->treeWidget->treeWidget()->currentItem();
+    if (item) {
+        populatePackfiles(ui->treeWidget->itemId(item));
+    }
+}
+
+void MainWidget::pollDownloadProgress()
+{
+    QTreeWidgetItem *item = ui->treeWidget->treeWidget()->currentItem();
+    if (!item) {
+        mDownloadPollTimer->stop();
+        return;
+    }
+    QString groupId = ui->treeWidget->itemId(item);
+    if (groupId.isEmpty()) {
+        mDownloadPollTimer->stop();
+        return;
+    }
+    
+    bool activeDownloads = false;
+    bool completedAny = false;
+    
+    for (int i = 0; i < mPackfilesTable->rowCount(); ++i) {
+        if (i >= (int)mAvailableUpdates.size()) break;
+        const auto &update = mAvailableUpdates[i];
+        if (update.mFiles.empty()) continue;
+        
+        const auto &file = update.mFiles[0];
+        FileInfo info;
+        bool hasFile = rsFiles && rsFiles->alreadyHaveFile(file.mHash, info);
+        if (!hasFile && rsFiles) {
+            rsFiles->FileDetails(file.mHash, RS_FILE_HINTS_DOWNLOAD | RS_FILE_HINTS_SPEC_ONLY, info);
+            if (info.downloadStatus == FT_STATE_COMPLETE) {
+                hasFile = true;
+            }
+        }
+        
+        if (hasFile) {
+            if (rsGit) {
+                std::cout << "MainWidget::pollDownloadProgress: packfile completed, unpacking " << file.mHash.toStdString() << std::endl;
+                if (rsGit->unpackUpdate(RsGxsGroupId(groupId.toStdString()), update.mMeta.mMsgId, file.mHash, update.mRefUpdates)) {
+                    completedAny = true;
+                }
+            }
+        } else {
+            QString statusStr = tr("Remote");
+            bool isDownloading = false;
+            
+            if (rsFiles) {
+                switch (info.downloadStatus) {
+                    case FT_STATE_DOWNLOADING:
+                        {
+                            double percent = 0.0;
+                            if (info.size > 0) percent = (double)info.avail * 100.0 / (double)info.size;
+                            statusStr = tr("Downloading (%1%)").arg(QString::number(percent, 'f', 1));
+                            isDownloading = true;
+                        }
+                        break;
+                    case FT_STATE_WAITING:
+                        statusStr = tr("Waiting");
+                        isDownloading = true;
+                        break;
+                    case FT_STATE_QUEUED:
+                        statusStr = tr("Queued");
+                        isDownloading = true;
+                        break;
+                    case FT_STATE_PAUSED:
+                        statusStr = tr("Paused");
+                        isDownloading = true;
+                        break;
+                    case FT_STATE_CHECKING_HASH:
+                        statusStr = tr("Checking hash");
+                        isDownloading = true;
+                        break;
+                    default:
+                        break;
+                }
+            }
+            
+            if (isDownloading) {
+                activeDownloads = true;
+                mPackfilesTable->setItem(i, 4, new QTableWidgetItem(statusStr));
+            }
+        }
+    }
+    
+    if (completedAny) {
+        populateCommitLog(groupId);
+        populateRepoBrowser(groupId);
+        populatePackfiles(groupId);
+        
+        if (mCommitTable->rowCount() > 0) {
+            mBtnPush->setText(tr("Push Local Commits"));
+        }
+    } else if (!activeDownloads) {
+        mDownloadPollTimer->stop();
+        populatePackfiles(groupId);
     }
 }
 

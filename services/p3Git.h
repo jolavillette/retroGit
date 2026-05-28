@@ -68,6 +68,12 @@ public:
 
     virtual bool getGroups(const std::list<RsGxsGroupId> &groupIds, std::vector<RsGitGroup> &groups) override;
 
+    virtual bool getUpdates(const RsGxsGroupId &groupId, std::vector<RsGitUpdate> &updates) override;
+    virtual bool unpackUpdate(const RsGxsGroupId &groupId, const RsGxsMessageId &msgId, const RsFileHash &fileHash, const std::map<std::string, std::string> &refUpdates) override;
+
+    virtual bool setMessageProcessedStatus(const RsGxsGrpMsgIdPair &msgId, bool processed) override;
+    virtual void setMessageProcessedStatus(uint32_t &token, const RsGxsGrpMsgIdPair &msgId, bool processed) override;
+
     virtual bool subscribeToGroup(uint32_t &token, const RsGxsGroupId &groupId, bool subscribe) override;
     virtual bool subscribe(const RsGxsGroupId &groupId, bool subscribe) override;
 
@@ -78,6 +84,7 @@ private:
     struct PendingPackfile
     {
         RsGxsGroupId groupId;
+        RsGxsMessageId msgId;
         RsFileHash fileHash;
         std::map<std::string, std::string> refUpdates;
     };

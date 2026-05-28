@@ -19,6 +19,7 @@
  *******************************************************************************/
 
 #include "GitManager.h"
+#include <QDir>
 #include <iostream>
 #include <fstream>
 #include <string.h>
@@ -92,6 +93,9 @@ bool GitManager::unpackPackfile(const std::string& repoPath, const std::string& 
     git_indexer *idx = NULL;
     std::string packDir = repoPath + "/objects/pack";
     
+    // Ensure the pack directory exists, otherwise git_indexer_new fails
+    QDir().mkpath(QString::fromStdString(packDir));
+    
     error = git_indexer_new(&idx, packDir.c_str(), 0, NULL, NULL);
     if (error == 0) {
         git_indexer_progress stats;
@@ -106,6 +110,8 @@ bool GitManager::unpackPackfile(const std::string& repoPath, const std::string& 
     if (error < 0) {
         const git_error *e = git_error_last();
         std::cerr << "Error indexing packfile: " << (e ? e->message : "Unknown") << std::endl;
+        git_repository_free(repo);
+        return false;
     }
 
     // Update branch references
@@ -211,10 +217,12 @@ bool GitManager::getCommitLog(const std::string &repoPath, std::vector<GitCommit
     
     // Push HEAD to start walking
     if (git_revwalk_push_head(walker) != 0) {
-        // Fallback: try to push refs/heads/master if HEAD is not resolved
-        git_oid master_oid;
-        if (git_reference_name_to_id(&master_oid, repo, "refs/heads/master") == 0) {
-            git_revwalk_push(walker, &master_oid);
+        // Fallback: try to push refs/heads/master or refs/heads/main if HEAD is not resolved
+        git_oid branch_oid;
+        if (git_reference_name_to_id(&branch_oid, repo, "refs/heads/master") == 0) {
+            git_revwalk_push(walker, &branch_oid);
+        } else if (git_reference_name_to_id(&branch_oid, repo, "refs/heads/main") == 0) {
+            git_revwalk_push(walker, &branch_oid);
         } else {
             git_revwalk_free(walker);
             git_repository_free(repo);
@@ -289,10 +297,12 @@ bool GitManager::getRepoFiles(const std::string& repoPath, std::vector<std::stri
 
     git_oid head_oid;
     if (git_reference_name_to_id(&head_oid, repo, "HEAD") != 0) {
-        // Fallback: try to resolve refs/heads/master if HEAD is not resolved
+        // Fallback: try to resolve refs/heads/master or refs/heads/main if HEAD is not resolved
         if (git_reference_name_to_id(&head_oid, repo, "refs/heads/master") != 0) {
-            git_repository_free(repo);
-            return true;
+            if (git_reference_name_to_id(&head_oid, repo, "refs/heads/main") != 0) {
+                git_repository_free(repo);
+                return true;
+            }
         }
     }
 
@@ -513,35 +523,8 @@ bool GitManager::getFileDiff(const std::string& repoPath, const std::string& com
         return false;
     }
 
-    git_oid oid;
-    if (git_oid_fromstr(&oid, commitHash.c_str()) != 0) {
-        git_repository_free(repo);
-        return false;
-    }
-
-    git_commit *commit = nullptr;
-    if (git_commit_lookup(&commit, repo, &oid) != 0) {
-        git_repository_free(repo);
-        return false;
-    }
-
-    git_tree *commit_tree = nullptr;
-    if (git_commit_tree(&commit_tree, commit) != 0) {
-        git_commit_free(commit);
-        git_repository_free(repo);
-        return false;
-    }
-
-    git_tree *parent_tree = nullptr;
-    unsigned int parent_count = git_commit_parentcount(commit);
-    if (parent_count > 0) {
-        git_commit *parent = nullptr;
-        if (git_commit_parent(&parent, commit, 0) == 0) {
-            git_commit_tree(&parent_tree, parent);
-            git_commit_free(parent);
-        }
-    }
-
+    git_diff *diff = nullptr;
+    bool success = false;
     git_diff_options opts = GIT_DIFF_OPTIONS_INIT;
     char *pathspec_arr[1];
     if (!relativePath.empty()) {
@@ -550,24 +533,165 @@ bool GitManager::getFileDiff(const std::string& repoPath, const std::string& com
         opts.pathspec.count = 1;
     }
 
-    git_diff *diff = nullptr;
-    bool success = false;
-    if (git_diff_tree_to_tree(&diff, repo, parent_tree, commit_tree, &opts) == 0) {
-        DiffCallbackPayload payload;
-        payload.lines = &diffLines;
-        
-        if (git_diff_print(diff, GIT_DIFF_FORMAT_PATCH, file_diff_line_cb, &payload) == 0) {
-            success = true;
+    if (commitHash == "LOCAL_CHANGES") {
+        git_tree *head_tree = nullptr;
+        git_oid head_oid;
+        bool has_head = false;
+        if (git_reference_name_to_id(&head_oid, repo, "HEAD") == 0) {
+            has_head = true;
+        } else if (git_reference_name_to_id(&head_oid, repo, "refs/heads/master") == 0) {
+            has_head = true;
+        } else if (git_reference_name_to_id(&head_oid, repo, "refs/heads/main") == 0) {
+            has_head = true;
         }
-        git_diff_free(diff);
+
+        if (has_head) {
+            git_commit *commit = nullptr;
+            if (git_commit_lookup(&commit, repo, &head_oid) == 0) {
+                git_commit_tree(&head_tree, commit);
+                git_commit_free(commit);
+            }
+        }
+
+        if (git_diff_tree_to_workdir_with_index(&diff, repo, head_tree, &opts) == 0) {
+            DiffCallbackPayload payload;
+            payload.lines = &diffLines;
+            if (git_diff_print(diff, GIT_DIFF_FORMAT_PATCH, file_diff_line_cb, &payload) == 0) {
+                success = true;
+            }
+            git_diff_free(diff);
+        }
+
+        if (head_tree) {
+            git_tree_free(head_tree);
+        }
+    } else {
+        git_oid oid;
+        if (git_oid_fromstr(&oid, commitHash.c_str()) != 0) {
+            git_repository_free(repo);
+            return false;
+        }
+
+        git_commit *commit = nullptr;
+        if (git_commit_lookup(&commit, repo, &oid) != 0) {
+            git_repository_free(repo);
+            return false;
+        }
+
+        git_tree *commit_tree = nullptr;
+        if (git_commit_tree(&commit_tree, commit) != 0) {
+            git_commit_free(commit);
+            git_repository_free(repo);
+            return false;
+        }
+
+        git_tree *parent_tree = nullptr;
+        unsigned int parent_count = git_commit_parentcount(commit);
+        if (parent_count > 0) {
+            git_commit *parent = nullptr;
+            if (git_commit_parent(&parent, commit, 0) == 0) {
+                git_commit_tree(&parent_tree, parent);
+                git_commit_free(parent);
+            }
+        }
+
+        if (git_diff_tree_to_tree(&diff, repo, parent_tree, commit_tree, &opts) == 0) {
+            DiffCallbackPayload payload;
+            payload.lines = &diffLines;
+
+            if (git_diff_print(diff, GIT_DIFF_FORMAT_PATCH, file_diff_line_cb, &payload) == 0) {
+                success = true;
+            }
+            git_diff_free(diff);
+        }
+
+        if (parent_tree) {
+            git_tree_free(parent_tree);
+        }
+        git_tree_free(commit_tree);
+        git_commit_free(commit);
     }
 
-    if (parent_tree) {
-        git_tree_free(parent_tree);
-    }
-    git_tree_free(commit_tree);
-    git_commit_free(commit);
     git_repository_free(repo);
+    return success;
+}
 
+bool GitManager::getLocalChanges(const std::string& repoPath, std::vector<GitLocalChange>& changes)
+{
+    git_repository *repo = nullptr;
+    if (git_repository_open(&repo, repoPath.c_str()) != 0) {
+        return false;
+    }
+
+    if (git_repository_is_bare(repo)) {
+        git_repository_free(repo);
+        return false;
+    }
+
+    git_status_list *status_list = nullptr;
+    git_status_options opts = GIT_STATUS_OPTIONS_INIT;
+    opts.show = GIT_STATUS_SHOW_INDEX_AND_WORKDIR;
+    opts.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED | GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS | GIT_STATUS_OPT_RENAMES_HEAD_TO_INDEX;
+
+    bool success = false;
+    if (git_status_list_new(&status_list, repo, &opts) == 0) {
+        success = true;
+        size_t count = git_status_list_entrycount(status_list);
+        for (size_t i = 0; i < count; ++i) {
+            const git_status_entry *entry = git_status_byindex(status_list, i);
+            if (!entry) continue;
+
+            char status_char = ' ';
+            std::string color_hex = "#000000";
+            unsigned int status = entry->status;
+
+            if (status & GIT_STATUS_IGNORED) {
+                continue;
+            }
+
+            if (status & GIT_STATUS_INDEX_NEW) {
+                status_char = '+';
+                color_hex = "#d35400"; // Orange
+            } else if (status & GIT_STATUS_WT_NEW) {
+                status_char = '?';
+                color_hex = "#7f8c8d"; // Grey
+            } else if (status & (GIT_STATUS_INDEX_DELETED | GIT_STATUS_WT_DELETED)) {
+                status_char = '-';
+                color_hex = "#27ae60"; // Green/Olive
+            } else if (status & (GIT_STATUS_INDEX_MODIFIED | GIT_STATUS_WT_MODIFIED | GIT_STATUS_INDEX_RENAMED | GIT_STATUS_WT_RENAMED)) {
+                status_char = '~';
+                color_hex = "#2980b9"; // Blue
+            } else {
+                continue;
+            }
+
+            const char *path = nullptr;
+            if (entry->head_to_index) {
+                if (entry->head_to_index->new_file.path) {
+                    path = entry->head_to_index->new_file.path;
+                } else if (entry->head_to_index->old_file.path) {
+                    path = entry->head_to_index->old_file.path;
+                }
+            }
+            if (!path && entry->index_to_workdir) {
+                if (entry->index_to_workdir->new_file.path) {
+                    path = entry->index_to_workdir->new_file.path;
+                } else if (entry->index_to_workdir->old_file.path) {
+                    path = entry->index_to_workdir->old_file.path;
+                }
+            }
+
+            if (path) {
+                GitLocalChange change;
+                change.path = path;
+                change.status = status_char;
+                change.color_hex = color_hex;
+                changes.push_back(change);
+            }
+        }
+        git_status_list_free(status_list);
+    }
+
+    git_repository_free(repo);
     return success;
 }
