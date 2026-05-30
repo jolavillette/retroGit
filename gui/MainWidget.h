@@ -37,7 +37,25 @@
 #include <QWidget>
 
 
+#include "gui/gxs/GxsIdDetails.h"
+
 class QAction;
+class QLabel;
+
+class GxsIdTableItem : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit GxsIdTableItem(QWidget *parent = nullptr);
+    void setId(const RsGxsId &id);
+    bool getId(RsGxsId &id) const;
+
+private:
+    static void fillCallback(GxsIdDetailsType type, const RsIdentityDetails &details, QObject *object, const QVariant &data);
+    RsGxsId mId;
+    QLabel *mIconLabel;
+    QLabel *mTextLabel;
+};
 
 namespace Ui
 {
@@ -82,6 +100,7 @@ private slots:
     void onCommitTableContextMenu(const QPoint &pos);
     void onTabCloseRequested(int index);
     void onRepoBrowserContextMenu(const QPoint &pos);
+    void onClonesTableContextMenu(const QPoint &pos);
     void openSelectedFile();
     void pollDownloadProgress();
     void onDownloadClicked();

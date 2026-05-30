@@ -206,6 +206,8 @@ MainWidget::MainWidget(QWidget *parent, RetroGitNotify *notify):
     mClonesTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     mClonesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     mClonesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    mClonesTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(mClonesTable, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onClonesTableContextMenu(QPoint)));
     packfilesLayout->addWidget(mClonesTable);
     
     ui->rightPaneTabWidget->addTab(mPackfilesTab, QIcon(":/images/git.png"), tr("Pushes / Packs"));
@@ -356,39 +358,11 @@ void MainWidget::processSettings(bool load)
     // state of splitter
     ui->splitter->restoreState(Settings->value("SplitterList").toByteArray());
 
-    // Load clone history
-    int count = Settings->beginReadArray("CloneHistory");
-    mCloneHistory.clear();
-    for (int i = 0; i < count; ++i) {
-        Settings->setArrayIndex(i);
-        CloneRecord rec;
-        rec.repoId = Settings->value("repoId").toString();
-        rec.repoName = Settings->value("repoName").toString();
-        rec.ownerId = Settings->value("ownerId").toString();
-        rec.status = Settings->value("status").toString();
-        rec.time = Settings->value("time").toString();
-        mCloneHistory.push_back(rec);
-    }
-    Settings->endArray();
-    populateClonesTable();
-
   } else {
     // save settings
 
     // state of splitter
     Settings->setValue("SplitterList", ui->splitter->saveState());
-
-    // Save clone history
-    Settings->beginWriteArray("CloneHistory");
-    for (int i = 0; i < (int)mCloneHistory.size(); ++i) {
-        Settings->setArrayIndex(i);
-        Settings->setValue("repoId", mCloneHistory[i].repoId);
-        Settings->setValue("repoName", mCloneHistory[i].repoName);
-        Settings->setValue("ownerId", mCloneHistory[i].ownerId);
-        Settings->setValue("status", mCloneHistory[i].status);
-        Settings->setValue("time", mCloneHistory[i].time);
-    }
-    Settings->endArray();
   }
 
   Settings->endGroup();
@@ -855,6 +829,7 @@ void MainWidget::onTreeSelectionChanged()
         mBtnBrowse->setVisible(true);   // always show when nothing is selected
         mLocalPathEdit->clear();
         mPackfilesTable->setRowCount(0);
+        populateClonesTable();
         mAvailableUpdates.clear();
         if (mDownloadPollTimer) {
             mDownloadPollTimer->stop();
@@ -902,6 +877,7 @@ void MainWidget::onTreeSelectionChanged()
     populateCommitLog(groupId);
     populateRepoBrowser(groupId);
     populatePackfiles(groupId);
+    populateClonesTable();
     
     if (mCommitTable->rowCount() == 0) {
         mBtnPush->setText(tr("Push & Publish"));
@@ -950,6 +926,7 @@ void MainWidget::populateCommitLog(const QString &groupId)
     std::set<std::string> unreadCommitShas;
     std::map<std::string, std::pair<RsGxsMessageId, bool>> commitToMsgId;
     std::map<std::string, std::string> commitToMsgName;
+    std::map<std::string, RsGxsId> commitToAuthorId;
     
     for (const auto &update : updates) {
         bool isUnread = (update.mMeta.mMsgStatus & GXS_SERV::GXS_MSG_STATUS_GUI_UNREAD);
@@ -959,6 +936,7 @@ void MainWidget::populateCommitLog(const QString &groupId)
         for (const auto &pair : update.mRefUpdates) {
             commitToMsgId[pair.second] = {update.mMeta.mMsgId, isUnread};
             commitToMsgName[pair.second] = update.mMeta.mMsgName;
+            commitToAuthorId[pair.second] = update.mMeta.mAuthorId;
             if (isUnread) {
                 unreadCommitShas.insert(pair.second);
             }
@@ -1049,14 +1027,10 @@ void MainWidget::populateCommitLog(const QString &groupId)
         QTableWidgetItem *itemMsg = new QTableWidgetItem(msgName);
         
         // Author
-        QString author = tr("Anonymous");
-        if (!update.mMeta.mAuthorId.isNull() && rsIdentity) {
-            RsIdentityDetails idDetails;
-            if (rsIdentity->getIdDetails(update.mMeta.mAuthorId, idDetails)) {
-                author = QString::fromUtf8(idDetails.mNickname.c_str());
-            }
+        QTableWidgetItem *itemAuth = new QTableWidgetItem();
+        if (update.mMeta.mAuthorId.isNull()) {
+            itemAuth->setText(tr("Anonymous"));
         }
-        QTableWidgetItem *itemAuth = new QTableWidgetItem(author);
         
         // Date
         QString dateStr = QDateTime::fromTime_t(update.mMeta.mPublishTs).toString(Qt::SystemLocaleShortDate);
@@ -1075,6 +1049,11 @@ void MainWidget::populateCommitLog(const QString &groupId)
         mCommitTable->setItem(rowIdx, 0, itemHash);
         mCommitTable->setItem(rowIdx, 1, itemMsg);
         mCommitTable->setItem(rowIdx, 2, itemAuth);
+        if (!update.mMeta.mAuthorId.isNull()) {
+            GxsIdTableItem *authorWidget = new GxsIdTableItem(mCommitTable);
+            authorWidget->setId(update.mMeta.mAuthorId);
+            mCommitTable->setCellWidget(rowIdx, 2, authorWidget);
+        }
         mCommitTable->setItem(rowIdx, 3, itemDate);
         
         // Status Column
@@ -1130,7 +1109,24 @@ void MainWidget::populateCommitLog(const QString &groupId)
         
         QTableWidgetItem *itemHash = new QTableWidgetItem(QString::fromStdString(commits[i].hash));
         itemHash->setData(Qt::UserRole, QString::fromStdString(commits[i].full_hash));
-        QTableWidgetItem *itemAuth = new QTableWidgetItem(QString::fromStdString(commits[i].author));
+        
+        RsGxsId gxsAuthorId;
+        auto itAuth = commitToAuthorId.find(commits[i].full_hash);
+        if (itAuth == commitToAuthorId.end()) {
+            itAuth = commitToAuthorId.find(commits[i].hash);
+        }
+        if (itAuth != commitToAuthorId.end()) {
+            gxsAuthorId = itAuth->second;
+        }
+        
+        QTableWidgetItem *itemAuth = nullptr;
+        if (!gxsAuthorId.isNull()) {
+            itemAuth = new QTableWidgetItem();
+        } else {
+            itemAuth = new QTableWidgetItem(QString::fromStdString(commits[i].author));
+            itemAuth->setIcon(FilesDefs::getIconFromQtResourcePath(":/icons/svg/people2.svg"));
+        }
+        
         QTableWidgetItem *itemDate = new QTableWidgetItem(QString::fromStdString(commits[i].date));
         
         // Check read/unread status
@@ -1158,6 +1154,11 @@ void MainWidget::populateCommitLog(const QString &groupId)
         
         mCommitTable->setItem(rowIdx, 0, itemHash);
         mCommitTable->setItem(rowIdx, 2, itemAuth);
+        if (!gxsAuthorId.isNull()) {
+            GxsIdTableItem *authorWidget = new GxsIdTableItem(mCommitTable);
+            authorWidget->setId(gxsAuthorId);
+            mCommitTable->setCellWidget(rowIdx, 2, authorWidget);
+        }
         mCommitTable->setItem(rowIdx, 3, itemDate);
         
         // Format message column (show "New Commit: <msg>" if GXS update)
@@ -2308,20 +2309,16 @@ void MainWidget::populatePackfiles(const QString &groupId)
                     const auto &update = updates[i];
                     
                     // Author Name
-                    QString author = tr("Anonymous");
-                    if (!update.mMeta.mAuthorId.isNull()) {
-                        if (rsIdentity) {
-                            RsIdentityDetails idDetails;
-                            if (rsIdentity->getIdDetails(update.mMeta.mAuthorId, idDetails)) {
-                                author = QString::fromUtf8(idDetails.mNickname.c_str());
-                            }
-                        }
-                        if (author.isEmpty() || author == tr("Anonymous")) {
-                            author = QString::fromStdString(update.mMeta.mAuthorId.toStdString()).left(12);
-                        }
+                    QTableWidgetItem *itemAuth = new QTableWidgetItem();
+                    if (update.mMeta.mAuthorId.isNull()) {
+                        itemAuth->setText(tr("Anonymous"));
                     }
-                    QTableWidgetItem *itemAuth = new QTableWidgetItem(author);
                     mPackfilesTable->setItem(i, 0, itemAuth);
+                    if (!update.mMeta.mAuthorId.isNull()) {
+                        GxsIdTableItem *authorWidget = new GxsIdTableItem(mPackfilesTable);
+                        authorWidget->setId(update.mMeta.mAuthorId);
+                        mPackfilesTable->setCellWidget(i, 0, authorWidget);
+                    }
                     
                     // Date
                     QString dateStr = QDateTime::fromTime_t(update.mMeta.mPublishTs).toString(Qt::SystemLocaleShortDate);
@@ -2606,28 +2603,51 @@ void MainWidget::populateClonesTable()
     if (!mClonesTable) return;
     
     mClonesTable->setRowCount(0);
-    mClonesTable->setRowCount(mCloneHistory.size());
     
-    for (int i = 0; i < (int)mCloneHistory.size(); ++i) {
-        QTableWidgetItem *itemRepo = new QTableWidgetItem(mCloneHistory[i].repoName.isEmpty() ? mCloneHistory[i].repoId : mCloneHistory[i].repoName);
-        QTableWidgetItem *itemOwner = new QTableWidgetItem(mCloneHistory[i].ownerId);
-        QTableWidgetItem *itemStatus = new QTableWidgetItem(mCloneHistory[i].status);
-        QTableWidgetItem *itemTime = new QTableWidgetItem(mCloneHistory[i].time);
+    if (!ui->treeWidget || !ui->treeWidget->treeWidget()) return;
+    QTreeWidgetItem *item = ui->treeWidget->treeWidget()->currentItem();
+    if (!item) return;
+    
+    QString currentGroupId = ui->treeWidget->itemId(item);
+    if (currentGroupId.isEmpty()) return;
+    
+    std::vector<CloneRecord> filteredHistory;
+    for (const auto &rec : mCloneHistory) {
+        if (rec.repoId == currentGroupId) {
+            filteredHistory.push_back(rec);
+        }
+    }
+    
+    mClonesTable->setRowCount(filteredHistory.size());
+    
+    for (int i = 0; i < (int)filteredHistory.size(); ++i) {
+        QTableWidgetItem *itemRepo = new QTableWidgetItem(filteredHistory[i].repoName.isEmpty() ? filteredHistory[i].repoId : filteredHistory[i].repoName);
+        QTableWidgetItem *itemOwner = new QTableWidgetItem();
+        if (filteredHistory[i].ownerId.isEmpty()) {
+            itemOwner->setText(tr("Anonymous"));
+        }
+        QTableWidgetItem *itemStatus = new QTableWidgetItem(filteredHistory[i].status);
+        QTableWidgetItem *itemTime = new QTableWidgetItem(filteredHistory[i].time);
         
         // Highlight active clones
-        if (mCloneHistory[i].status.contains("Requesting") || mCloneHistory[i].status.contains("secured") || mCloneHistory[i].status.contains("Unpacking")) {
+        if (filteredHistory[i].status.contains("Requesting") || filteredHistory[i].status.contains("secured") || filteredHistory[i].status.contains("Unpacking")) {
             QFont font = itemStatus->font();
             font.setBold(true);
             itemStatus->setFont(font);
             itemStatus->setForeground(QBrush(QColor("#2980b9"))); // Blue for in-progress
-        } else if (mCloneHistory[i].status.contains("Successful") || mCloneHistory[i].status.contains("completed")) {
+        } else if (filteredHistory[i].status.contains("Successful") || filteredHistory[i].status.contains("completed")) {
             itemStatus->setForeground(QBrush(QColor("#27ae60"))); // Green for success
-        } else if (mCloneHistory[i].status.contains("Failed") || mCloneHistory[i].status.contains("down")) {
+        } else if (filteredHistory[i].status.contains("Failed") || filteredHistory[i].status.contains("down")) {
             itemStatus->setForeground(QBrush(QColor("#c0392b"))); // Red for failure
         }
         
         mClonesTable->setItem(i, 0, itemRepo);
         mClonesTable->setItem(i, 1, itemOwner);
+        if (!filteredHistory[i].ownerId.isEmpty()) {
+            GxsIdTableItem *authorWidget = new GxsIdTableItem(mClonesTable);
+            authorWidget->setId(RsGxsId(filteredHistory[i].ownerId.toStdString()));
+            mClonesTable->setCellWidget(i, 1, authorWidget);
+        }
         mClonesTable->setItem(i, 2, itemStatus);
         mClonesTable->setItem(i, 3, itemTime);
     }
@@ -2690,6 +2710,113 @@ void MainWidget::openSelectedFile()
         } else {
             QMessageBox::critical(this, tr("Error"), tr("Failed to extract and open file from repository."));
         }
+    }
+}
+
+GxsIdTableItem::GxsIdTableItem(QWidget *parent)
+    : QWidget(parent)
+{
+    QHBoxLayout *layout = new QHBoxLayout(this);
+    layout->setContentsMargins(4, 2, 4, 2);
+    layout->setSpacing(4);
+    
+    mIconLabel = new QLabel(this);
+    mTextLabel = new QLabel(this);
+    
+    layout->addWidget(mIconLabel);
+    layout->addWidget(mTextLabel);
+    layout->addStretch();
+}
+
+void GxsIdTableItem::setId(const RsGxsId &id)
+{
+    mId = id;
+    if (id.isNull()) {
+        mTextLabel->setText(tr("Anonymous"));
+        mIconLabel->setPixmap(QPixmap());
+    } else {
+        GxsIdDetails::process(mId, fillCallback, this);
+    }
+}
+
+bool GxsIdTableItem::getId(RsGxsId &id) const
+{
+    id = mId;
+    return true;
+}
+
+void GxsIdTableItem::fillCallback(GxsIdDetailsType type, const RsIdentityDetails &details, QObject *object, const QVariant &)
+{
+    GxsIdTableItem *item = dynamic_cast<GxsIdTableItem*>(object);
+    if (!item) return;
+    
+    item->mTextLabel->setText(GxsIdDetails::getNameForType(type, details));
+    
+    QList<QIcon> icons;
+    if (type == GXS_ID_DETAILS_TYPE_DONE) {
+        GxsIdDetails::getIcons(details, icons, GxsIdDetails::ICON_TYPE_AVATAR);
+    }
+    
+    QPixmap combinedPixmap;
+    if (!icons.empty()) {
+        int iconSize = static_cast<int>(item->fontMetrics().height() * 1.7);
+        GxsIdDetails::GenerateCombinedPixmap(combinedPixmap, icons, iconSize);
+    }
+    item->mIconLabel->setPixmap(combinedPixmap);
+    item->setToolTip(GxsIdDetails::getComment(details));
+}
+
+void MainWidget::onClonesTableContextMenu(const QPoint &pos)
+{
+    QTableWidgetItem *item = mClonesTable->itemAt(pos);
+    if (!item) return;
+    
+    QMenu contextMenu(this);
+    QAction *clearAction = contextMenu.addAction(tr("Clear"));
+    QAction *clearAllAction = contextMenu.addAction(tr("Clear All"));
+    
+    QAction *selectedAction = contextMenu.exec(mClonesTable->viewport()->mapToGlobal(pos));
+    if (selectedAction == clearAction) {
+        int row = mClonesTable->row(item);
+        QString repo = mClonesTable->item(row, 0)->text();
+        QString owner = "";
+        
+        QTableWidgetItem *ownerItem = mClonesTable->item(row, 1);
+        if (ownerItem) {
+            QWidget *cellW = mClonesTable->cellWidget(row, 1);
+            GxsIdTableItem *authWidget = dynamic_cast<GxsIdTableItem*>(cellW);
+            RsGxsId gxsId;
+            if (authWidget && authWidget->getId(gxsId)) {
+                owner = QString::fromStdString(gxsId.toStdString());
+            } else {
+                owner = ownerItem->text();
+            }
+        }
+        QString timeStr = mClonesTable->item(row, 3)->text();
+        
+        for (auto it = mCloneHistory.begin(); it != mCloneHistory.end(); ++it) {
+            if ((it->repoName == repo || it->repoId == repo) &&
+                it->ownerId == owner &&
+                it->time == timeStr)
+            {
+                mCloneHistory.erase(it);
+                break;
+            }
+        }
+        populateClonesTable();
+    } else if (selectedAction == clearAllAction) {
+        QTreeWidgetItem *currentItem = ui->treeWidget->treeWidget()->currentItem();
+        if (currentItem) {
+            QString currentGroupId = ui->treeWidget->itemId(currentItem);
+            for (auto it = mCloneHistory.begin(); it != mCloneHistory.end(); ) {
+                if (it->repoId == currentGroupId) {
+                    it = mCloneHistory.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+        populateClonesTable();
     }
 }
 
