@@ -121,11 +121,11 @@ MainWidget::MainWidget(QWidget *parent, RetroGitNotify *notify):
     QHBoxLayout *pathLayout = new QHBoxLayout();
     mLocalPathEdit = new QLineEdit(ui->tabWidgetPage1);
     mLocalPathEdit->setPlaceholderText(tr("Local Working Directory..."));
-    QPushButton *btnBrowse = new QPushButton(tr("Browse..."), ui->tabWidgetPage1);
+    mBtnBrowse = new QPushButton(tr("Browse..."), ui->tabWidgetPage1);
     mBtnOpenFolder = new QPushButton(tr("Open Folder"), ui->tabWidgetPage1);
     
     pathLayout->addWidget(mLocalPathEdit);
-    pathLayout->addWidget(btnBrowse);
+    pathLayout->addWidget(mBtnBrowse);
     pathLayout->addWidget(mBtnOpenFolder);
     workDirLayout->addLayout(pathLayout);
 
@@ -219,7 +219,7 @@ MainWidget::MainWidget(QWidget *parent, RetroGitNotify *notify):
     processSettings(true);
 
     connect(newGroupButton, SIGNAL(clicked()), this, SLOT(createGroup()));
-    connect(btnBrowse, SIGNAL(clicked()), this, SLOT(onBrowseClicked()));
+    connect(mBtnBrowse, SIGNAL(clicked()), this, SLOT(onBrowseClicked()));
     connect(mBtnOpenFolder, SIGNAL(clicked()), this, SLOT(onOpenFolderClicked()));
     connect(mBtnClone, SIGNAL(clicked()), this, SLOT(onCloneClicked()));
     connect(mBtnPush, SIGNAL(clicked()), this, SLOT(onPushClicked()));
@@ -852,6 +852,7 @@ void MainWidget::onTreeSelectionChanged()
         mBtnPush->setEnabled(false);
         mBtnPull->setEnabled(false);
         mBtnClone->setEnabled(false);
+        mBtnBrowse->setVisible(true);   // always show when nothing is selected
         mLocalPathEdit->clear();
         mPackfilesTable->setRowCount(0);
         mAvailableUpdates.clear();
@@ -893,6 +894,10 @@ void MainWidget::onTreeSelectionChanged()
     mBtnClone->setEnabled(!isAdmin && !isCloned);
     mBtnOpenFolder->setEnabled(hasPath && pathExists);
     mBtnCommit->setEnabled(hasPath && pathExists && isAdmin);
+
+    // Hide the Browse button for admins who already published the repo;
+    // they set the path once and then use Push/Commit — not Browse again.
+    mBtnBrowse->setVisible(!isAdmin);
     
     populateCommitLog(groupId);
     populateRepoBrowser(groupId);
@@ -1208,8 +1213,10 @@ void MainWidget::populateCommitLog(const QString &groupId)
             mCommitTable->setItem(rowIdx, 4, itemStatus);
         }
         
-        // Action column: show "Push" button if it is our unpushed local commit
-        if (isAdmin && !hasGxsMsg) {
+        // Action column: show "Push" button only for the newest local commit (i == 0)
+        // that has not been published to GXS yet.  Older commits are historical —
+        // re-pushing them would re-publish already-seen history.
+        if (isAdmin && !hasGxsMsg && i == 0) {
             QPushButton *btnPushRow = new QPushButton(tr("Push"), mCommitTable);
             btnPushRow->setStyleSheet("QPushButton { font-weight: bold; color: #27ae60; }");
             connect(btnPushRow, &QPushButton::clicked, this, &MainWidget::onPushClicked);

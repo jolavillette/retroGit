@@ -115,6 +115,7 @@ private:
     
     // UI elements for the right pane
     class QLineEdit *mLocalPathEdit;
+    class QPushButton *mBtnBrowse;
     class QPushButton *mBtnOpenFolder;
     class QPushButton *mBtnPush;
     class QPushButton *mBtnPull;
