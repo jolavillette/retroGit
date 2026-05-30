@@ -80,9 +80,10 @@ public:
     virtual bool setMessageReadStatus(const RsGxsGrpMsgIdPair &msgId,bool read) override;
     virtual void setMessageReadStatus(uint32_t &token,const RsGxsGrpMsgIdPair &msgId,bool read) override;
 
-    // RsGit overrides
     virtual bool requestCloneOverTunnel(const RsGxsGroupId &groupId, const RsGxsId &toId, const RsGxsId &ownId, const std::string &localPath) override;
     virtual bool requestPullOverTunnel(const RsGxsGroupId &groupId, const RsGxsId &toId, const RsGxsId &ownId, const std::string &localPath) override;
+
+    virtual bool getGitStatistics(GxsServiceStatistic &stats) override;
 
     // RsGxsTunnelClientService methods
     virtual void notifyTunnelStatus(const RsGxsTunnelId& tunnel_id, uint32_t tunnel_status) override;

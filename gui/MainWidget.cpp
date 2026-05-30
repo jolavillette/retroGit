@@ -23,10 +23,13 @@
 #include "ui_MainWidget.h"
 
 #include "gui/gxs/GxsIdDetails.h"
+#include "gui/gxs/GxsIdTreeWidgetItem.h"
+#include "gui/GitUserNotify.h"
 #include "gui/settings/rsharesettings.h"
 #include "interface/rsGit.h"
 #include "retroshare/rsgxsflags.h"
 #include "retroshare/rsservicecontrol.h"
+#include "retroshare/rsgxsifacehelper.h"
 #include "services/p3Git.h"
 #include "services/rsGitItems.h"
 #include "services/GitManager.h"
@@ -324,6 +327,11 @@ MainWidget::~MainWidget()
 
     // save settings
     processSettings(false);
+}
+
+UserNotify *MainWidget::createUserNotify(QObject *parent)
+{
+    return new GitUserNotify(this, parent);
 }
 
 void MainWidget::showEvent(QShowEvent *event)

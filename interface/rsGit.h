@@ -181,14 +181,9 @@ public:
     * @return true if successful
     */
     virtual bool setMessageReadStatus(const RsGxsGrpMsgIdPair &msgId,bool read) = 0;
-
-    /**
-    * @brief Async set the read status of a message
-    * @param token Request token
-    * @param msgId The Group ID and Message ID pair
-    * @param read True to mark as read, false for unread
-    */
     virtual void setMessageReadStatus(uint32_t &token,const RsGxsGrpMsgIdPair &msgId,bool read) = 0;
+
+    virtual bool getGitStatistics(GxsServiceStatistic &stats) = 0;
 };
 
 #endif // INTERFACE_RS_GIT_H
