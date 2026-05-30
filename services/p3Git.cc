@@ -534,6 +534,11 @@ void p3Git::setMessageReadStatus(uint32_t &token, const RsGxsGrpMsgIdPair &msgId
     }
 }
 
+bool p3Git::getGitStatistics(GxsServiceStatistic &stats)
+{
+    return getServiceStatistics(stats);
+}
+
 bool p3Git::getUpdates(const RsGxsGroupId &groupId, std::vector<RsGitUpdate> &updates)
 {
     uint32_t token;

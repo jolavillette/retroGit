@@ -52,6 +52,8 @@ public:
     explicit MainWidget(QWidget *parent, RetroGitNotify *notify);
     ~MainWidget();
 
+    virtual class UserNotify *createUserNotify(QObject *parent) override;
+
 protected:
     virtual void showEvent(QShowEvent *event) override;
 

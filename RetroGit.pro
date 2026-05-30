@@ -56,7 +56,8 @@ SOURCES = RetroGitPlugin.cpp               \
           gui/MainWidget.cpp \
           gui/RetroGitNotify.cpp \
           gui/GitGroupDialog.cpp \
-          gui/GitCommitDialog.cpp
+          gui/GitCommitDialog.cpp \
+          gui/GitUserNotify.cpp
 
 HEADERS = RetroGitPlugin.h                 \
           services/p3Git.h            \
@@ -66,7 +67,8 @@ HEADERS = RetroGitPlugin.h                 \
           gui/MainWidget.h \
           gui/RetroGitNotify.h \
           gui/GitGroupDialog.h \
-          gui/GitCommitDialog.h
+          gui/GitCommitDialog.h \
+          gui/GitUserNotify.h
 
 FORMS += \
           gui/MainWidget.ui \
