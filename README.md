@@ -1,6 +1,6 @@
 # RetroShare 0.6 Git Plugin
 
-This is a Git plugin
+Distributed Git repository sharing over the GXS (Generic eXchange System) network.
 
 # Dependencies 
 
