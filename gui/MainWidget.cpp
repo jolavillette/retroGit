@@ -63,6 +63,7 @@
 #include <QDir>
 #include <QFile>
 #include <QDateTime>
+#include <QLocale>
 #include <QThread>
 #include <QProgressDialog>
 #include <QCoreApplication>
@@ -1064,7 +1065,11 @@ void MainWidget::populateCommitLog(const QString &groupId)
         }
         
         // Date
+#if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
+        QString dateStr = QLocale().toString(QDateTime::fromSecsSinceEpoch(update.mMeta.mPublishTs), QLocale::ShortFormat);
+#else
         QString dateStr = QDateTime::fromTime_t(update.mMeta.mPublishTs).toString(Qt::SystemLocaleShortDate);
+#endif
         QTableWidgetItem *itemDate = new QTableWidgetItem(dateStr);
         
         if (isUnread) {
@@ -2388,7 +2393,11 @@ void MainWidget::populatePackfiles(const QString &groupId)
                     }
                     
                     // Date
+#if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
+                    QString dateStr = QLocale().toString(QDateTime::fromSecsSinceEpoch(update.mMeta.mPublishTs), QLocale::ShortFormat);
+#else
                     QString dateStr = QDateTime::fromTime_t(update.mMeta.mPublishTs).toString(Qt::SystemLocaleShortDate);
+#endif
                     QTableWidgetItem *itemDate = new QTableWidgetItem(dateStr);
                     mPackfilesTable->setItem(i, 1, itemDate);
                     
